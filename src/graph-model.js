@@ -663,9 +663,11 @@ function createGalaxy(graph, seed, shape) {
 		});
 	}
 
-	// A soft glow around the very core, where the arms converge. Kept small and dim:
-	// a bright nucleus reads as a white blob sitting on top of the view.
-	for (let index = 0; index < 110; index += 1) {
+	// A faint scatter where the spiral arms converge, at half the old alpha: a bright
+	// nucleus reads as a white blob sitting on top of the view. Spiral only: the other
+	// layouts are re-centred on their folders, so grains fixed at the origin would
+	// pile up in the middle of a shape that has nothing there.
+	for (let index = 0; layout === "spiral" && index < 110; index += 1) {
 		const angle = hash01(`core:${index}:a`) * TAU;
 		const radius = Math.pow(hash01(`core:${index}:r`), 1.8) * 0.16;
 		dust.push({
@@ -673,7 +675,7 @@ function createGalaxy(graph, seed, shape) {
 			z: Math.sin(angle) * radius,
 			y: (hash01(`core:${index}:y`) - 0.5) * 0.03 * thickness,
 			hue: 46,
-			alpha: 0.02 + hash01(`core:${index}:a2`) * 0.05,
+			alpha: 0.01 + hash01(`core:${index}:a2`) * 0.025,
 			size: 0.6 + hash01(`core:${index}:s`) * 0.9
 		});
 	}

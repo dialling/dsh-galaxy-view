@@ -26,6 +26,7 @@ import {
 	projectPoint
 } from "../src/graph-model.js";
 import { DEFAULTS, DEFAULT_THEME, PRESERVED_KEYS, PRESETS, SETTINGS_VERSION, THEMES, migrateSettings } from "../src/settings.js";
+import { HALO_INNER, HALO_OUTER, STAR_PEAK, createNebula, discColour, discSample, innerHaloAlpha, linkTint, rgbToHsl, starPlateau } from "../src/stars.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -308,7 +309,60 @@ for (const match of clientSource.matchAll(/\bt\([^()]*\?\s*"([^"]+)"\s*:\s*"([^"
 for (const name of Object.keys(THEMES)) usedKeys.add(`theme.${name}`);
 for (const name of Object.keys(PRESETS)) usedKeys.add(`preset.${name}`);
 for (const key of usedKeys) assert.ok(zhKeys.has(key) && enKeys.has(key), `t("${key}") is in both dictionaries`);
-assert.equal(clientSource.split("const linkColor = {").length - 1, 1, "only renderScene builds the filament palette");
+assert.equal(clientSource.split("const linkColor = {").length - 1, 0, "no stray single-colour filament palette (links use linkLookFor)");
+{
+	const renderAt = clientSource.indexOf("function renderScene(");
+	const render = clientSource.slice(renderAt, clientSource.indexOf("\n}\n", renderAt));
+	const starsAt = render.indexOf("// Stars, far to near");
+	const starPass = render.slice(starsAt, render.indexOf("// Captions:", starsAt));
+	assert.ok(starsAt >= 0, "renderScene has the star pass");
+	assert.ok(!render.includes("createRadialGradient") && !render.includes("createLinearGradient"), "renderScene builds no gradients per frame");
+	assert.ok(!clientSource.includes("glowSprite"), "no node-scaled glowSprite skirt");
+	assert.ok(!/rgba\(6,\s*8,\s*14/.test(clientSource), "no dark outline strokes around star bodies");
+	assert.ok(!/hsla?\(\$\{[^}]+\},\s*(8[5-9]|9\d|100)%/.test(starPass), "no saturated (S >= 85%) solid star bodies");
+	assert.ok(starPass.includes("discSprite(") && starPass.includes("haloSprite(entry.hue, HALO_INNER"), "bodies are cached disc sprites with fixed-px halos");
+	const linkAt = render.indexOf("// Links (recipe §3)");
+	const linkPass = render.slice(linkAt, starsAt);
+	assert.ok(linkAt >= 0 && linkPass.includes('globalCompositeOperation = "source-over"') && linkPass.includes("lineWidth = 1 / dprNow"), "links: source-over, one device px");
+	assert.ok(!linkPass.includes('"lighter"'), "links are never additive");
+	assert.ok(/entry\.dot|dot: /.test(render) && render.includes("projected.push({ node, x: point.x, y: point.y, depth: point.depth, radius, dot:"), "projected entries carry the drawn dot");
+	assert.ok(!/state\.trackNode !== null && state\.cam\.distance </.test(render), "no proximity bloom around the tracked star");
+	assert.ok(!/Nucleus|nucleus\(/.test(render), "no nucleus / central light draw");
+	const loopAt = clientSource.indexOf("const frame = (now) =>");
+	const loop = clientSource.slice(loopAt, clientSource.indexOf("loopRef.current.ensure = ", loopAt));
+	assert.ok(/try \{[\s\S]*renderScene\(canvas, state\);[\s\S]*state\.drawMs = [\s\S]*\} catch \(error\)/.test(loop), "the frame loop catches render exceptions and records drawMs");
+	const nebulaAt = clientSource.indexOf("function bakeNebula(");
+	assert.ok(clientSource.slice(nebulaAt, nebulaAt + 600).includes("if (theme.haze) return null;"), "haze themes get no screen-space veil spots or vignette");
+}
+assert.ok(THEMES[DEFAULT_THEME].haze === true && THEMES[DEFAULT_THEME].vignette === false, "the default theme uses world haze without a vignette");
+
+/* ── stars, links, haze: the Galaxy View node recipe ─────────────────────── */
+for (const name of Object.keys(THEMES)) {
+	for (const hue of THEMES[name].hues) {
+		const plateau = starPlateau(hue);
+		const [, s, l] = rgbToHsl(...plateau);
+		assert.ok(Math.max(...plateau) <= STAR_PEAK, `${name} ${hue}°: plateau peak <= ${STAR_PEAK}`);
+		assert.ok(s >= 0.55 && s <= 0.7 && l >= 0.72 && l <= 0.78, `${name} ${hue}°: plateau S/L in the recipe band (${s.toFixed(2)}, ${l.toFixed(2)})`);
+		const centre = discColour(plateau, discSample(0)[1]);
+		const lum = ([r, g, b]) => 0.299 * r + 0.587 * g + 0.114 * b;
+		assert.ok(lum(centre) > lum(plateau) && Math.max(...centre) <= 240, `${name} ${hue}°: white-hot core lighter than the plateau, never white`);
+		const link = linkTint(plateau, plateau);
+		assert.ok(rgbToHsl(...link)[2] <= 0.351 && rgbToHsl(...link)[1] <= s * 0.4 + 0.01, `${name} ${hue}°: link tint desaturated and darkened`);
+	}
+}
+assert.deepEqual(discSample(0.5), [0, 0], "disc alpha reaches 0 at the rim");
+assert.equal(discSample(0.42)[0], 1, "disc is solid to 0.84 rd");
+assert.ok(discSample(0.3)[1] === 0 && discSample(0)[1] > 0.5, "white core only within 0.36 rd");
+assert.ok(Math.abs(innerHaloAlpha(3) - 0.32) < 1e-9 && Math.abs(innerHaloAlpha(1.5) - 0.08) < 1e-9, "inner halo alpha 0.32·min(1,(rd/3)²)");
+assert.deepEqual([HALO_INNER.sigma, HALO_OUTER.sigma], [3, 10], "halos are fixed sigma 3 / 10 CSS px");
+const cyanLink = linkTint(starPlateau(184), starPlateau(184));
+assert.ok(Math.hypot(cyanLink[0] - 0x41, cyanLink[1] - 0x6e, cyanLink[2] - 0x71) < 12, `cyan link close to #416e71 (${cyanLink})`);
+const nebula = createNebula(1.4, starPlateau(184), starPlateau(38));
+assert.equal(nebula.sprites.length, 144, "nebula: 6 centres x 24 billboards");
+assert.equal(nebula.colours.length, 6, "nebula: one cached colour per centre");
+assert.deepEqual(createNebula(1.4, starPlateau(184), starPlateau(38)), nebula, "nebula is deterministic");
+assert.ok(nebula.colours.every((colour) => Math.max(...colour) <= 90), "nebula colours stay dark (L 0.2)");
+assert.equal(createGalaxy(graph, 1, { layout: "rings" }).dust.filter((grain) => grain.hue === 46 && Math.hypot(grain.x, grain.z) < 0.17).length, 0, "core dust is spiral-only");
 {
 	const skyStart = clientSource.indexOf("// Sky shell: hard squares");
 	const skyEnd = clientSource.indexOf("const basis = skyBasis;", skyStart);

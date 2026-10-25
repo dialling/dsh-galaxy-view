@@ -344,40 +344,9 @@ function hueBucket(hue) {
 	return Math.round(hue / 15) * 15;
 }
 
-const spriteCache = new Map();
 const dustCache = new Map();
 
-/**
- * One 128px additive glow: small white core, tinted halo, transparent edge.
- * @param hue - HSL hue for the halo.
- * @param core - how opaque the centre stays (0–1).
- * @returns cached canvas sprite.
- */
-function glowSprite(hue, core) {
-	const key = `${hueBucket(hue)}:${core}`;
-	const cached = spriteCache.get(key);
-	if (cached !== undefined) return cached;
-	const size = 128;
-	const canvas = document.createElement("canvas");
-	canvas.width = size;
-	canvas.height = size;
-	const context = canvas.getContext("2d");
-	const bucket = hueBucket(hue);
-	const gradient = context.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-	gradient.addColorStop(0, `hsla(${bucket}, 100%, 88%, ${core})`);
-	gradient.addColorStop(0.06, `hsla(${bucket}, 100%, 82%, ${core * 0.9})`);
-	gradient.addColorStop(0.13, `hsla(${bucket}, 100%, 72%, ${core * 0.42})`);
-	gradient.addColorStop(0.26, `hsla(${bucket}, 96%, 70%, ${core * 0.18})`);
-	gradient.addColorStop(0.48, `hsla(${bucket}, 92%, 60%, ${core * 0.05})`);
-	gradient.addColorStop(0.74, `hsla(${bucket}, 90%, 55%, ${core * 0.014})`);
-	gradient.addColorStop(1, `hsla(${bucket}, 90%, 50%, 0)`);
-	context.fillStyle = gradient;
-	context.fillRect(0, 0, size, size);
-	spriteCache.set(key, canvas);
-	return canvas;
-}
-
-/** Cache one 24px soft speck per dust hue bucket. */
+/** Cache one 24px soft speck per dust hue bucket, muted like the star plateaus. */
 function dustSprite(hue) {
 	const bucket = hueBucket(hue);
 	const cached = dustCache.get(bucket);
@@ -388,9 +357,9 @@ function dustSprite(hue) {
 	canvas.height = size;
 	const context = canvas.getContext("2d");
 	const gradient = context.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-	gradient.addColorStop(0, `hsla(${bucket}, 96%, 82%, 1)`);
-	gradient.addColorStop(0.4, `hsla(${bucket}, 92%, 70%, 0.28)`);
-	gradient.addColorStop(1, `hsla(${bucket}, 90%, 60%, 0)`);
+	gradient.addColorStop(0, `hsla(${bucket}, 60%, 76%, 1)`);
+	gradient.addColorStop(0.4, `hsla(${bucket}, 58%, 66%, 0.28)`);
+	gradient.addColorStop(1, `hsla(${bucket}, 55%, 56%, 0)`);
 	context.fillStyle = gradient;
 	context.fillRect(0, 0, size, size);
 	dustCache.set(bucket, canvas);
@@ -398,11 +367,13 @@ function dustSprite(hue) {
 }
 
 /**
- * Bake the deep-space backdrop once per size, palette and veil strength.
- * @returns offscreen canvas.
+ * Bake the deep-space backdrop once per size, palette and veil strength. Themes with
+ * world-space haze (`theme.haze`) get none: no screen-space veil spots, no vignette.
+ * @returns offscreen canvas, or null when the plane is drawn flat.
  */
 function bakeNebula(width, height, dpr, themeName, veil) {
 	const theme = themeOf(themeName);
+	if (theme.haze) return null;
 	const canvas = document.createElement("canvas");
 	canvas.width = Math.max(1, Math.round(width * dpr));
 	canvas.height = Math.max(1, Math.round(height * dpr));
@@ -633,7 +604,9 @@ function GraphScene(props) {
 			pointerY: 0,
 			settings,
 			fps: 60,
-			frameCost: 16
+			frameCost: 16,
+			drawMs: 0,
+			renderErrors: 0
 		};
 	}
 	const state = stateRef.current;
@@ -735,7 +708,22 @@ function GraphScene(props) {
 					state.tierAt = now;
 				}
 			}
-			stepScene(state, delta);
+			// A throwing frame must never escape into the host: catch it, report the
+			// first failure of a burst, and let the next frame try again.
+			try {
+				stepScene(state, delta);
+				const started = performance.now();
+				renderScene(canvas, state);
+				state.drawMs = state.drawMs * 0.9 + (performance.now() - started) * 0.1;
+				state.failing = false;
+			} catch (error) {
+				state.renderErrors += 1;
+				if (!state.failing && now - (state.errorLoggedAt ?? -Infinity) > 2000) {
+					state.errorLoggedAt = now;
+					console.error("graph-view: frame failed, retrying next frame", error);
+				}
+				state.failing = true;
+			}
 			if (now - reported > 900) {
 				reported = now;
 				onStats?.({
@@ -746,7 +734,6 @@ function GraphScene(props) {
 					quality: state.tier ?? (state.dpr >= 2 ? "high" : "low")
 				});
 			}
-			renderScene(canvas, state);
 		};
 		loopRef.current.ensure = () => {
 			if (loopRef.current.raf !== 0) return;
@@ -1312,6 +1299,140 @@ function nodeHue(settings, node) {
 	return theme.hues[((index % theme.hues.length) + theme.hues.length) % theme.hues.length];
 }
 
+/** Resting link alpha per class: member, lineage, dimmed (focus ×0.25). */
+const LINK_ALPHA = [0.36, 0.46, 0.09];
+
+/**
+ * Per-link colours for the current galaxy and palette, bucketed so the link pass
+ * strokes one path per colour: `order` holds link indices sorted by bucket and
+ * `start`/`end` the bucket ranges. Rebuilt only when the galaxy or theme changes.
+ */
+function linkLookFor(state, settings) {
+	const cached = state.linkLook;
+	if (cached !== undefined && cached.galaxy === state.galaxy && cached.theme === settings.theme) return cached;
+	const styles = [];
+	const touched = [];
+	const keys = new Map();
+	const links = state.galaxy.links;
+	const nodes = state.galaxy.nodes;
+	const bucketOf = new Int32Array(links.length);
+	links.forEach((link, index) => {
+		const a = nodes[link.a];
+		const b = nodes[link.b];
+		const colourA = starPlateau(a === undefined ? 0 : nodeHue(settings, a));
+		const colourB = starPlateau(b === undefined ? 0 : nodeHue(settings, b));
+		const key = linkTint(colourA, colourB, false).join(",");
+		if (!keys.has(key)) {
+			keys.set(key, styles.length);
+			styles.push(`rgb(${key})`);
+			touched.push(`rgb(${linkTint(colourA, colourB, true).join(",")})`);
+		}
+		bucketOf[index] = keys.get(key);
+	});
+	const order = Array.from(links.keys()).sort((left, right) => bucketOf[left] - bucketOf[right] || left - right);
+	const start = new Int32Array(styles.length).fill(order.length);
+	const end = new Int32Array(styles.length);
+	order.forEach((linkIndex, slot) => {
+		const bucket = bucketOf[linkIndex];
+		start[bucket] = Math.min(start[bucket], slot);
+		end[bucket] = slot + 1;
+	});
+	state.linkLook = { galaxy: state.galaxy, theme: settings.theme, styles, touched, bucketOf, order, start, end };
+	return state.linkLook;
+}
+
+/**
+ * World-space haze (recipe §4): nebula billboards around the core plus soft clouds
+ * over the largest workspaces, drawn additively into a quarter-resolution canvas and
+ * upscaled. Every sprite is cached; the billboard lists are rebuilt only when the
+ * galaxy, palette or shell changes.
+ */
+function paintHaze(context, state, theme, basis, reveal) {
+	const settings = state.settings;
+	const intensity = clamp(settings.veil, 0, 1) * 1.6 * reveal;
+	if (intensity <= 0.005) return;
+	let haze = state.haze;
+	if (haze === undefined || haze.galaxy !== state.galaxy || haze.theme !== settings.theme || haze.shell !== state.shellRadius) {
+		const colourA = starPlateau(theme.hues[0]);
+		const colourB = starPlateau(theme.hues[1 % theme.hues.length]);
+		const groups = new Map();
+		const groupOf = (key) => {
+			const group = groups.get(key) ?? { key, hue: 0, points: [] };
+			groups.set(key, group);
+			return group;
+		};
+		for (const node of state.galaxy.nodes) {
+			if (node.kind === "folder") groupOf(node.id).hue = nodeHue(settings, node);
+			else if (typeof node.folderId === "string") groupOf(node.folderId).points.push({ x: node.x, y: node.y, z: node.z });
+		}
+		haze = {
+			galaxy: state.galaxy,
+			theme: settings.theme,
+			shell: state.shellRadius,
+			nebula: createNebula(state.shellRadius ?? 1.2, colourA, colourB),
+			clouds: createClusterClouds([...groups.values()]),
+			canvas: haze?.canvas ?? document.createElement("canvas")
+		};
+		state.haze = haze;
+	}
+	const width = state.width;
+	const height = state.height;
+	const low = haze.canvas;
+	const lowW = Math.max(1, Math.ceil(width / 4));
+	const lowH = Math.max(1, Math.ceil(height / 4));
+	if (low.width !== lowW || low.height !== lowH) {
+		low.width = lowW;
+		low.height = lowH;
+	}
+	const paint = low.getContext("2d");
+	paint.setTransform(1, 0, 0, 1, 0, 0);
+	paint.globalAlpha = 1;
+	paint.globalCompositeOperation = "source-over";
+	paint.clearRect(0, 0, lowW, lowH);
+	paint.globalCompositeOperation = "lighter";
+	const quarter = lowW / width;
+	const focal = (Math.min(width, height) * 0.5) / Math.tan(0.41);
+	const eye = basis.eye;
+	const fwd = basis.forward;
+	const right = basis.right;
+	const up = basis.up;
+	const grow = 0.35 + 0.65 * reveal;
+	const spin = state.time * 0.0004;
+	const spinCos = Math.cos(spin);
+	const spinSin = Math.sin(spin);
+	for (let layer = 0; layer < 2; layer += 1) {
+		const set = layer === 0 ? haze.nebula : haze.clouds;
+		const kind = layer === 0 ? "nebula" : "cloud";
+		// Far below the reference's linear-space alphas: sRGB "lighter" has no tone
+		// mapping, and the measured target is only ~(22,30,29) at the core.
+		const strength = layer === 0 ? intensity * 0.06 : intensity * 0.05;
+		const cos = layer === 0 ? spinCos : 1;
+		const sin = layer === 0 ? spinSin : 0;
+		const stretch = layer === 0 ? 1 : grow;
+		for (const sprite of set.sprites) {
+			const dx = (sprite.x * cos - sprite.z * sin) * stretch - eye.x;
+			const dy = sprite.y * stretch - eye.y;
+			const dz = (sprite.x * sin + sprite.z * cos) * stretch - eye.z;
+			const depth = dx * fwd.x + dy * fwd.y + dz * fwd.z;
+			if (depth <= 0.25) continue;
+			// Billboards the camera flies through fade out instead of washing the frame.
+			const near = clamp((depth - 0.25) / 0.75, 0, 1);
+			const px = (width * 0.5 + ((dx * right.x + dy * right.y + dz * right.z) / depth) * focal) * quarter;
+			const py = (height * 0.5 - ((dx * up.x + dy * up.y + dz * up.z) / depth) * focal) * quarter;
+			const size = ((sprite.d * stretch * focal) / depth) * quarter;
+			if (px + size < 0 || px - size > lowW || py + size < 0 || py - size > lowH) continue;
+			paint.globalAlpha = Math.min(1, strength * sprite.a * near);
+			paint.drawImage(hazeSprite(set.colours[sprite.c], kind), px - size / 2, py - size / 2, size, size);
+		}
+	}
+	context.globalCompositeOperation = "lighter";
+	context.globalAlpha = 1;
+	context.imageSmoothingEnabled = true;
+	context.imageSmoothingQuality = "high";
+	context.drawImage(low, 0, 0, width, height);
+	context.globalCompositeOperation = "source-over";
+}
+
 /** Paint one frame. */
 function renderScene(canvas, state) {
 	const context = canvas.getContext("2d");
@@ -1319,31 +1440,23 @@ function renderScene(canvas, state) {
 	if (context === null || state.galaxy === null) return;
 	const theme = themeOf(settings.theme);
 	const [lr, lg, lb] = theme.link;
-	const linkColor = {
-		touched: `rgba(${lr},${lg},${lb},0.85)`,
-		lineage: `rgba(${lr},${lg},${lb},0.26)`,
-		plain: `rgba(${lr},${lg},${lb},0.16)`
-	};
 	const budget = qualityBudget(settings, state.tier ?? (state.dpr >= 2 ? "high" : "low"));
 	const width = state.width;
 	const height = state.height;
 	context.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
 	context.globalAlpha = 1;
 	context.globalCompositeOperation = "source-over";
-	context.clearRect(0, 0, width, height);
-	if (state.nebula !== null) {
-		context.drawImage(state.nebula, 0, 0, width, height);
-	} else {
-		context.fillStyle = theme.base;
-		context.fillRect(0, 0, width, height);
-	}
+	context.shadowBlur = 0;
+	context.fillStyle = theme.base;
+	context.fillRect(0, 0, width, height);
+	if (state.nebula !== null) context.drawImage(state.nebula, 0, 0, width, height);
 
 	const viewport0 = { width, height };
 	const reveal = easeOut(state.reveal);
 	const bright = clamp(settings.brightness * 1.15, 0.05, 1.4);
-	const halo = 0.75 + settings.bloom * 1.1;
-	// "阈值" hardens the sprite: above the knee the halo stops washing the core out.
-	const haloAlpha = Math.max(0.15, 1 - clamp(settings.threshold, 0, 1) * 0.8);
+	// Body and link strength from 亮度; halo strength from 辉光 范围 and 阈值 (1 at the defaults).
+	const bodyGain = clamp(0.55 + settings.brightness * 0.9, 0.2, 1);
+	const haloGain = (0.6 + clamp(settings.bloom, 0, 1) * 0.9) * (1.12 - clamp(settings.threshold, 0, 1) * 0.5);
 
 	// Sky shell: hard squares at fixed CSS sizes (never distance-attenuated), snapped
 	// to device pixels and batched into one path per (class, tint) bucket.
@@ -1423,6 +1536,7 @@ function renderScene(canvas, state) {
 		paintGrainSquares(context, FIELD, skyRadius, state.time * -0.00048, skyTarget, skyBasis, focal, width, height, dprNow, skyKeep, skySize, skyFill);
 	}
 	context.globalAlpha = 1;
+	if (theme.haze && settings.backdrop) paintHaze(context, state, theme, skyBasis, reveal);
 	// Dust, guides and filaments below are additive.
 	context.globalCompositeOperation = "lighter";
 
@@ -1466,7 +1580,7 @@ function renderScene(canvas, state) {
 		const focal = (Math.min(width, height) * 0.5) / Math.tan(0.41);
 		const halfW = width * 0.5;
 		const halfH = height * 0.5;
-		const dustAlpha = reveal * settings.mist * 3.2;
+		const dustAlpha = reveal * settings.mist * 1.8;
 		const dustHues = theme.hues;
 		for (let index = 0; index < state.galaxy.dust.length; index += budget.dustStep) {
 			const grain = state.galaxy.dust[index];
@@ -1476,7 +1590,7 @@ function renderScene(canvas, state) {
 			const depth = dx * fwd.x + dy * fwd.y + dz * fwd.z;
 			if (depth <= 0.08) continue;
 			const step = focal / depth;
-			const size = clamp(grain.size * step * 0.016, 1, softShell ? 4.6 : 2.7);
+			const size = clamp(grain.size * step * 0.016, 0.8, softShell ? 2.4 : 2);
 			const px = halfW + ((dx * right.x + dy * right.y + dz * right.z) / depth) * focal;
 			const py = halfH - ((dx * up.x + dy * up.y + dz * up.z) / depth) * focal;
 			if (px < -size || px > width + size || py < -size || py > height + size) continue;
@@ -1486,7 +1600,8 @@ function renderScene(canvas, state) {
 	}
 	context.globalAlpha = 1;
 
-	// Stars: project once, keep the screen footprint for picking later.
+	// Stars: project once, keep the screen footprint for picking later. `radius` is
+	// the pick radius; `dot` is the drawn body diameter in CSS px.
 	const projected = [];
 	for (const node of state.galaxy.nodes) {
 		const point = project(node.x, node.y, node.z);
@@ -1495,30 +1610,19 @@ function renderScene(canvas, state) {
 			continue;
 		}
 		node._p = point;
-		const radius = Math.max(1.4, node.size * point.scale * (node.kind === "folder" ? 0.022 : 0.017));
-		projected.push({ node, x: point.x, y: point.y, depth: point.depth, radius });
+		node._dim = isDim(node);
+		const folder = node.kind === "folder";
+		const radius = Math.max(1.4, node.size * point.scale * (folder ? 0.022 : 0.017));
+		const rest = folder ? clamp(radius * 0.3, 2.4, 4.6) : clamp(radius * 0.85, 2, 5);
+		const hue = folder ? nodeHue(settings, node) : nodeHue(settings, node) + (hash01(`${node.id}:hue`) * 20 - 10);
+		projected.push({ node, x: point.x, y: point.y, depth: point.depth, radius, dot: node.id === hot ? rest * 1.3 : rest, hue: hueBucket(hue) });
 	}
 	projected.sort((left, right) => right.depth - left.depth);
 	state.projected = projected;
 
-	// Proximity bloom: as the dive lands, the subject lights its own frame.
-	if (state.trackNode !== null && state.cam.distance < 1.6) {
-		const near = clamp((1.6 - state.cam.distance) / 1.6, 0, 1);
-		const halo = Math.min(width, height) * (0.22 + near * 0.3);
-		const anchor = project(state.trackNode.x, state.trackNode.y, state.trackNode.z);
-		if (anchor !== null) {
-			const wash = context.createRadialGradient(anchor.x, anchor.y, 0, anchor.x, anchor.y, halo);
-			wash.addColorStop(0, `hsla(${state.trackNode.hue}, 92%, 70%, ${0.2 * near})`);
-			wash.addColorStop(0.55, `hsla(${state.trackNode.hue}, 88%, 62%, ${0.07 * near})`);
-			wash.addColorStop(1, "rgba(0,0,0,0)");
-			context.globalCompositeOperation = "lighter";
-			context.globalAlpha = 1;
-			context.fillStyle = wash;
-			context.beginPath();
-			context.arc(anchor.x, anchor.y, halo, 0, TAU);
-			context.fill();
-		}
-	}
+	// No proximity bloom while a star is tracked: the landed subject is lit by its own
+	// fixed-px halo only, so a dive can never paint a hue wash around the centre.
+
 
 	// Layout guides: the faint skeleton that names the silhouette (rings, strands,
 	// a wireframe shell, a box, a sheet, spokes). Drawn under the filaments.
@@ -1546,99 +1650,98 @@ function renderScene(canvas, state) {
 		context.globalAlpha = 1;
 	}
 
-	// Filaments: curved away from the core, faint, additive.
-
-	for (const link of state.galaxy.links) {
-		const a = state.galaxy.nodes[link.a];
-		const b = state.galaxy.nodes[link.b];
-		if (a === undefined || b === undefined || a._p == null || b._p == null) continue;
-		const touched = hot !== null && (a.id === hot || b.id === hot);
-		const dimmed = isDim(a) || isDim(b);
-		const midX = (a._p.x + b._p.x) / 2;
-		const midY = (a._p.y + b._p.y) / 2;
-		const bow = link.kind === "lineage" ? 0.16 : 0.07;
-		context.beginPath();
-		context.moveTo(a._p.x, a._p.y);
-		context.quadraticCurveTo(midX + (midX - width / 2) * bow, midY + (midY - height / 2) * bow, b._p.x, b._p.y);
-		context.strokeStyle = touched ? linkColor.touched : link.kind === "lineage" ? linkColor.lineage : linkColor.plain;
-		context.globalAlpha = (dimmed ? 0.04 : touched ? 0.72 : link.kind === "lineage" ? 0.34 : 0.2) * bright;
-		context.lineWidth = touched ? 1 : 0.55;
-		context.stroke();
+	// Links (recipe §3): one device pixel, source-over, each link in the desaturated mix
+	// of its endpoint colours, batched into one path per colour bucket and class.
+	const linkLook = linkLookFor(state, settings);
+	const links = state.galaxy.links;
+	const galaxyNodes = state.galaxy.nodes;
+	const linkFade = Math.min(1, reveal * 1.6) * bodyGain;
+	const linkAlpha = LINK_ALPHA;
+	const bowX = width / 2;
+	const bowY = height / 2;
+	context.globalCompositeOperation = "source-over";
+	context.lineWidth = 1 / dprNow;
+	for (let bucket = 0; bucket < linkLook.styles.length; bucket += 1) {
+		context.strokeStyle = linkLook.styles[bucket];
+		for (let pass = 0; pass < linkAlpha.length; pass += 1) {
+			let drawn = 0;
+			context.beginPath();
+			for (let slot = linkLook.start[bucket]; slot < linkLook.end[bucket]; slot += 1) {
+				const link = links[linkLook.order[slot]];
+				const a = galaxyNodes[link.a];
+				const b = galaxyNodes[link.b];
+				if (a === undefined || b === undefined || a._p == null || b._p == null) continue;
+				if (hot !== null && (a.id === hot || b.id === hot)) continue;
+				const kind = a._dim || b._dim ? 2 : link.kind === "lineage" ? 1 : 0;
+				if (kind !== pass) continue;
+				const midX = (a._p.x + b._p.x) / 2;
+				const midY = (a._p.y + b._p.y) / 2;
+				const bow = link.kind === "lineage" ? 0.16 : 0.07;
+				context.moveTo(a._p.x, a._p.y);
+				context.quadraticCurveTo(midX + (midX - bowX) * bow, midY + (midY - bowY) * bow, b._p.x, b._p.y);
+				drawn += 1;
+			}
+			if (drawn === 0) continue;
+			context.globalAlpha = linkAlpha[pass] * linkFade;
+			context.stroke();
+		}
+	}
+	// Links touching the hovered or selected star: the bright selected tier, 1 CSS px.
+	if (hot !== null) {
+		context.lineWidth = 1;
+		context.globalAlpha = 0.85 * linkFade;
+		for (let index = 0; index < links.length; index += 1) {
+			const link = links[index];
+			const a = galaxyNodes[link.a];
+			const b = galaxyNodes[link.b];
+			if (a === undefined || b === undefined || a._p == null || b._p == null) continue;
+			if (a.id !== hot && b.id !== hot) continue;
+			const midX = (a._p.x + b._p.x) / 2;
+			const midY = (a._p.y + b._p.y) / 2;
+			const bow = link.kind === "lineage" ? 0.16 : 0.07;
+			context.strokeStyle = linkLook.touched[linkLook.bucketOf[index]];
+			context.beginPath();
+			context.moveTo(a._p.x, a._p.y);
+			context.quadraticCurveTo(midX + (midX - bowX) * bow, midY + (midY - bowY) * bow, b._p.x, b._p.y);
+			context.stroke();
+		}
 	}
 	context.globalAlpha = 1;
 
-	// Stars, far to near: light points, not bodies. The shell owns "ball" here.
+	// Stars, far to near (recipe §2): tiny fixed-size halos first, then the cached disc
+	// bodies (soft rim, white-hot core). No outlines, no tinted skirts. Halos blend with
+	// "lighten" (per-channel max) rather than "lighter": the reference blooms the final
+	// image, so a crowded cluster glows like one star instead of summing to white.
+	context.globalCompositeOperation = "lighten";
+	const innerSide = HALO_INNER.radius * 2;
+	const outerSide = HALO_OUTER.radius * 2;
 	for (const entry of projected) {
 		const node = entry.node;
-		const dimmed = isDim(node);
-		const depthFade = Math.max(0.3, Math.min(1, 2.3 / (entry.depth + 0.9)));
-		let alpha = depthFade * bright * (dimmed ? 0.14 : 1);
-		if (node.archived) alpha *= 0.55;
-		if (node.kind === "folder") {
-			const hue = nodeHue(settings, node);
-			const radius = entry.radius * halo * (softShell ? 1.15 : 0.8);
-			context.globalAlpha = Math.min(1, alpha * 0.9);
-			context.drawImage(glowSprite(hue, 1), entry.x - radius, entry.y - radius, radius * 2, radius * 2);
-			if (!softShell) {
-				// Against a white point cloud a 2 px core disappears; the sun needs body.
-				const sun = clamp(entry.radius * 0.34, 2.4, 4.6);
-				context.globalAlpha = Math.min(1, alpha * 1.4 + 0.3);
-				context.fillStyle = `hsl(${hue}, 92%, 64%)`;
-				context.beginPath();
-				context.arc(entry.x, entry.y, sun, 0, TAU);
-				context.fill();
-				context.strokeStyle = "rgba(6,8,14,0.65)";
-				context.lineWidth = 1;
-				context.stroke();
-				continue;
-			}
-			// A small solid core keeps the sun crisp instead of cottony.
-			const coreRadius = Math.max(1.8, Math.min(4.2, entry.radius * 0.3));
-			context.globalAlpha = Math.min(1, alpha * haloAlpha + 0.35);
-			context.fillStyle = `hsla(${hue}, 98%, 80%, 1)`;
-			context.beginPath();
-			context.arc(entry.x, entry.y, coreRadius, 0, TAU);
-			context.fill();
-			continue;
-		}
-		const pulse = node.running ? 1 + 0.09 * Math.sin(state.time * 2.4 + hash01(node.id) * TAU) : 1;
-		const radius = entry.radius * pulse * halo * 1.25;
-		const hue = nodeHue(settings, node) + (hash01(`${node.id}:hue`) * 20 - 10);
-		context.globalAlpha = Math.min(1, alpha * 0.62);
-		context.drawImage(glowSprite(hue, node.current ? 1 : 0.9), entry.x - radius, entry.y - radius, radius * 2, radius * 2);
-		if (!softShell) {
-			const body = clamp(entry.radius * 0.45, 2.2, 5);
-			context.globalAlpha = Math.min(1, alpha * 1.5 + 0.3);
-			context.fillStyle = `hsl(${hue}, 94%, ${node.current ? 74 : 66}%)`;
-			context.beginPath();
-			context.arc(entry.x, entry.y, body, 0, TAU);
-			context.fill();
-			context.strokeStyle = "rgba(6,8,14,0.6)";
+		const emphasis = (node.id === hot ? 1.8 : 1) * (node.current ? 1.4 : 1);
+		const pulse = node.running ? 1 + 0.25 * Math.sin(state.time * 2.4 + hash01(node.id) * TAU) : 1;
+		const gain = haloGain * pulse * emphasis * (node._dim ? 0.14 : 1) * (node.archived ? 0.55 : 1) * reveal;
+		context.globalAlpha = Math.min(1, innerHaloAlpha(entry.dot / 2) * gain);
+		context.drawImage(haloSprite(entry.hue, HALO_INNER, dprNow), entry.x - HALO_INNER.radius, entry.y - HALO_INNER.radius, innerSide, innerSide);
+		// Outer halo below the recipe's 0.05: stacked over a 20-star cluster the full
+		// value merges into one coloured cloud, which the reference's image bloom never does.
+		context.globalAlpha = Math.min(1, 0.022 * gain);
+		context.drawImage(haloSprite(entry.hue, HALO_OUTER, dprNow), entry.x - HALO_OUTER.radius, entry.y - HALO_OUTER.radius, outerSide, outerSide);
+	}
+	context.globalCompositeOperation = "source-over";
+	for (const entry of projected) {
+		const node = entry.node;
+		const lit = node.id === hot || node.current === true;
+		const sprite = discSprite(entry.hue, Math.max(1, Math.round(entry.dot * dprNow * 2) / 2), lit ? 0.85 : 0.55);
+		const side = sprite.size / dprNow;
+		context.globalAlpha = (node._dim ? 0.14 : 1) * (node.archived ? 0.55 : 1) * bodyGain;
+		context.drawImage(sprite.canvas, Math.round(entry.x * dprNow - sprite.size / 2) / dprNow, Math.round(entry.y * dprNow - sprite.size / 2) / dprNow, side, side);
+		if (node.current || node.id === state.selectedId) {
+			// A detached ring a few px out, so the body itself keeps no outline.
+			context.globalAlpha = Math.min(1, (node._dim ? 0.3 : 0.7) * bodyGain);
+			context.strokeStyle = "rgba(214,226,232,0.8)";
 			context.lineWidth = 1;
-			context.stroke();
-			if (node.current) {
-				context.beginPath();
-				context.arc(entry.x, entry.y, entry.radius * 1.8, 0, TAU);
-				context.strokeStyle = "rgba(255,255,255,0.55)";
-				context.lineWidth = 1;
-				context.globalAlpha = Math.min(1, alpha + 0.2);
-				context.stroke();
-			}
-			continue;
-		}
-		// A ~1 px coloured centre: points stay points, dense clusters stay separable.
-		const dot = clamp(entry.radius * 0.22, 0.7, 1.7);
-		context.globalAlpha = Math.min(1, alpha * 1.4);
-		context.fillStyle = `hsla(${hue}, 96%, 76%, 1)`;
-		context.beginPath();
-		context.arc(entry.x, entry.y, dot, 0, TAU);
-		context.fill();
-		if (node.current) {
 			context.beginPath();
-			context.arc(entry.x, entry.y, entry.radius * 1.8, 0, TAU);
-			context.strokeStyle = `rgba(255,255,255,${0.5 * bright})`;
-			context.lineWidth = 1;
-			context.globalAlpha = Math.min(1, alpha + 0.15);
+			context.arc(entry.x, entry.y, entry.dot / 2 + 3.5, 0, TAU);
 			context.stroke();
 		}
 	}
@@ -1658,7 +1761,7 @@ function renderScene(canvas, state) {
 		const fade = Math.max(0.14, Math.min(1, 2.6 / (entry.depth + 1.1))) * (dimmed ? 0.2 : 1) * (0.6 + bright * 0.5);
 		const text = node.label.length > 22 ? `${node.label.slice(0, 21)}…` : node.label;
 		const labelWidth = context.measureText(text).width;
-		const labelY = entry.y + Math.max(6, entry.radius) + 6;
+		const labelY = entry.y + Math.max(4, entry.dot / 2 + 3) + 4;
 		const box = [entry.x - labelWidth / 2 - 2, labelY - 1, labelWidth + 4, 13];
 		const collides = placed.some(([x, y, w, hh]) => box[0] < x + w && x < box[0] + box[2] && box[1] < y + hh && y < box[1] + box[3]);
 		if (collides) continue;

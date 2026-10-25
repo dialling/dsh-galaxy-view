@@ -40,7 +40,7 @@ const PRESETS = {
  * even workspaces (cool) and odd ones (warm) split the arms evenly.
  */
 const THEMES = {
-	deepfield: { hues: [184, 38, 205, 28, 172, 46, 196, 33], veils: ["rgba(16,34,52,0.10)", "rgba(40,30,14,0.06)", "rgba(14,40,46,0.06)", "rgba(30,24,12,0.05)"], nucleus: [235, 240, 238], link: [150, 170, 180], base: "#000003", vignette: false },
+	deepfield: { hues: [184, 38, 205, 28, 172, 46, 196, 33], veils: ["rgba(16,34,52,0.10)", "rgba(40,30,14,0.06)", "rgba(14,40,46,0.06)", "rgba(30,24,12,0.05)"], nucleus: [235, 240, 238], link: [150, 170, 180], base: "#000003", vignette: false, haze: true },
 	hubble: { hues: [265, 208, 158, 28, 330, 96, 190, 12], veils: ["rgba(70,58,150,0.20)", "rgba(28,76,140,0.16)", "rgba(120,56,132,0.14)", "rgba(24,104,104,0.1)"], nucleus: [255, 246, 226], link: [150, 180, 235], base: SPACE, vignette: true },
 	neon: { hues: [190, 300, 150, 50, 265, 330, 175, 210], veils: ["rgba(20,90,150,0.22)", "rgba(140,40,160,0.18)", "rgba(20,130,140,0.14)", "rgba(60,40,140,0.16)"], nucleus: [220, 250, 255], link: [120, 220, 255], base: SPACE, vignette: true },
 	sunset: { hues: [22, 342, 46, 300, 10, 40, 320, 355], veils: ["rgba(150,60,50,0.2)", "rgba(120,60,120,0.16)", "rgba(170,90,50,0.14)", "rgba(90,50,90,0.14)"], nucleus: [255, 226, 180], link: [255, 190, 160], base: SPACE, vignette: true },
