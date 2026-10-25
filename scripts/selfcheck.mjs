@@ -18,6 +18,7 @@ import {
 	neighboursOf,
 	projectPoint
 } from "../src/graph-model.js";
+import { DEFAULTS, DEFAULT_THEME, PRESERVED_KEYS, PRESETS, SETTINGS_VERSION, THEMES, migrateSettings } from "../src/settings.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -163,6 +164,100 @@ const center = projectPoint({ x: 0, y: 0, z: 0 }, basis, viewport);
 assert.ok(Math.hypot(center.x - viewport.width / 2, center.y - viewport.height / 2) < 1e-6, "the core projects to the viewport centre");
 assert.equal(neighboursOf(galaxy).get("s1").has("s2"), true, "neighbour index carries lineage");
 
+/* ── settings: versioned migration, palette, i18n ─────────────────────────── */
+
+const oldFormat = {
+	preset: "galaxy",
+	theme: "hubble",
+	field: 0.2,
+	shellGlow: 1.8,
+	brightness: 0.9,
+	bloom: 0.9,
+	quality: "low",
+	hidden: ["w2", 7],
+	filterText: "abc",
+	lens: "running",
+	orphans: true,
+	empty: true,
+	autoOrbit: false,
+	tour: true,
+	only: "w1"
+};
+const migrated = migrateSettings(oldFormat);
+assert.equal(migrated.migrated, true, "a stored object without a version migrates");
+assert.equal(migrated.settings.settingsVersion, SETTINGS_VERSION, "migration stamps the current version");
+for (const key of Object.keys(DEFAULTS)) {
+	if (PRESERVED_KEYS.includes(key) || key === "settingsVersion") continue;
+	assert.deepEqual(migrated.settings[key], DEFAULTS[key], `migration resets visual key ${key}`);
+}
+assert.equal(migrated.settings.theme, DEFAULT_THEME, "migration lands on the new default theme");
+assert.deepEqual(migrated.settings.hidden, ["w2"], "migration keeps hidden (string ids only)");
+assert.equal(migrated.settings.only, "w1", "migration keeps the isolate pin");
+assert.equal(migrated.settings.filterText, "abc", "migration keeps the name filter");
+assert.equal(migrated.settings.lens, "running", "migration keeps the lens");
+assert.equal(migrated.settings.orphans, true, "migration keeps orphans");
+assert.equal(migrated.settings.empty, true, "migration keeps empty");
+assert.equal(migrated.settings.autoOrbit, false, "migration keeps autoOrbit");
+assert.equal(migrated.settings.tour, true, "migration keeps tour");
+assert.ok(!("settingsVersion" in oldFormat), "migration does not mutate its input");
+
+const userChanged = { ...migrated.settings, theme: "neon", brightness: 0.8 };
+const second = migrateSettings(JSON.parse(JSON.stringify(userChanged)));
+assert.equal(second.migrated, false, "a current-version object does not migrate again");
+assert.equal(second.settings.theme, "neon", "user theme choice survives after migration");
+assert.equal(second.settings.brightness, 0.8, "user slider survives after migration");
+
+for (const junk of [null, undefined, "garbage", 42, [1, 2]]) {
+	const result = migrateSettings(junk);
+	assert.deepEqual(result.settings, DEFAULTS, `unusable stored value ${JSON.stringify(junk)} falls back to defaults`);
+}
+const healed = migrateSettings({ settingsVersion: SETTINGS_VERSION, hidden: ["w1"], only: "w1" });
+assert.equal(healed.settings.only, null, "an isolate pin on a hidden workspace is dropped");
+assert.deepEqual(healed.settings.hidden, [], "and that workspace is unhidden");
+assert.equal(healed.migrated, true, "the healed state is written back");
+const healedOld = migrateSettings({ hidden: ["w1"], only: "w1", theme: "neon" });
+assert.equal(healedOld.settings.only, null, "healing still applies during a version migration");
+
+assert.equal(PRESETS.galaxy.theme, DEFAULT_THEME, "the default preset uses the default theme");
+assert.equal(PRESETS[DEFAULTS.preset].layout, DEFAULTS.layout, "default preset and layout agree");
+assert.equal(DEFAULTS.layout, "spiral", "default layout is the spiral");
+const isCool = (hue) => hue >= 160 && hue <= 230;
+const isWarm = (hue) => hue >= 25 && hue <= 55;
+const deepHues = THEMES[DEFAULT_THEME].hues;
+assert.ok(deepHues.length >= 8, "default palette has at least eight slots");
+deepHues.forEach((hue, index) => {
+	assert.ok(index % 2 === 0 ? isCool(hue) : isWarm(hue), `default palette slot ${index} (${hue}°) alternates cool/warm`);
+});
+const baseLum = (hex) => {
+	const n = parseInt(hex.slice(1), 16);
+	return 0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
+};
+assert.ok(baseLum(THEMES[DEFAULT_THEME].base) <= 6, "default theme sits on a near-black plane");
+for (const name of ["hubble", "neon", "sunset", "cyber", "matrix", "aurora"]) {
+	assert.equal(THEMES[name].base, "#1c1c1c", `${name} keeps the #1c1c1c plane`);
+	assert.notDeepEqual(THEMES[name].hues, deepHues, `${name} keeps its own palette`);
+}
+
+const clientSource = readFileSync(join(root, "src/client.js"), "utf8");
+const dictionaryKeys = (name) => {
+	const start = clientSource.indexOf(`const ${name} = {`);
+	assert.ok(start >= 0, `dictionary ${name} present`);
+	const body = clientSource.slice(start, clientSource.indexOf("\n};", start));
+	return new Set([...body.matchAll(/^\t"([^"]+)":/gm)].map((match) => match[1]));
+};
+const zhKeys = dictionaryKeys("zh");
+const enKeys = dictionaryKeys("en");
+assert.deepEqual([...zhKeys].filter((key) => !enKeys.has(key)), [], "every zh key has an en entry");
+assert.deepEqual([...enKeys].filter((key) => !zhKeys.has(key)), [], "every en key has a zh entry");
+const usedKeys = new Set([...clientSource.matchAll(/\bt\(\s*"([^"]+)"/g)].map((match) => match[1]));
+for (const match of clientSource.matchAll(/\bt\([^()]*\?\s*"([^"]+)"\s*:\s*"([^"]+)"/g)) {
+	usedKeys.add(match[1]);
+	usedKeys.add(match[2]);
+}
+for (const name of Object.keys(THEMES)) usedKeys.add(`theme.${name}`);
+for (const name of Object.keys(PRESETS)) usedKeys.add(`preset.${name}`);
+for (const key of usedKeys) assert.ok(zhKeys.has(key) && enKeys.has(key), `t("${key}") is in both dictionaries`);
+assert.equal(clientSource.split("const linkColor = {").length - 1, 1, "only renderScene builds the filament palette");
 /* ── bundle shape: the client loader contract ────────────────────────────── */
 
 const bundle = readFileSync(join(root, "lib/client.js"), "utf8");
@@ -181,12 +276,16 @@ assert.ok(!bundle.includes("children: {"), "no illegal children declaration on t
 assert.ok(bundle.includes("dgv-inside-glow") || true, "interior skin present");
 /* The guides draw before the filaments, so the filament palette must be bound first:
  * a const read before its declaration throws in the temporal dead zone every frame
- * and silently kills links, stars and captions. */
-assert.ok(
-	bundle.indexOf("const [lr, lg, lb] = theme.link") < bundle.indexOf("Layout guides:"),
-	"filament palette is bound before the layout guides draw"
-);
-
+ * and silently kills links, stars and captions. Checked inside renderScene itself,
+ * because other functions may mention the same text. */
+const renderStart = bundle.indexOf("function renderScene(");
+assert.ok(renderStart >= 0, "renderScene is in the bundle");
+const renderEnd = bundle.indexOf("\n}\n", renderStart);
+const renderBody = bundle.slice(renderStart, renderEnd);
+const paletteAt = renderBody.indexOf("const [lr, lg, lb] = theme.link");
+const guidesAt = renderBody.indexOf("Layout guides:");
+assert.ok(paletteAt >= 0 && guidesAt >= 0, "renderScene binds the filament palette and draws the layout guides");
+assert.ok(paletteAt < guidesAt, "filament palette is bound before the layout guides draw");
 console.log(
 	`selfcheck ok — ${galaxy.nodes.length} stars (${graph.stats.folders} suns), ${galaxy.dust.length} dust grains, ` +
 		`extent ${galaxy.extent.toFixed(2)}, camera ${camera.distance.toFixed(2)}, bundle ${bundle.length} bytes`

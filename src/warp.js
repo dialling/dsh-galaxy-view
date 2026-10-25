@@ -27,11 +27,13 @@ function warpEase(value) {
 /**
  * Play the transition once.
  *
- * @param {{ hue: number, onArrive?: () => void, sped?: number }} options
- *   `hue` is the star's hue in degrees; `onArrive` runs at the moment the camera
- *   is inside the sphere (so the chat is already mounted when the shell fades).
+ * @param {{ hue: number, base?: string, onArrive?: () => void, sped?: number }} options
+ *   `hue` is the star's hue in degrees; `base` is the theme's plane colour;
+ *   `onArrive` runs at the moment the camera is inside the sphere (so the chat is
+ *   already mounted when the shell fades).
  */
 function playWarp(options) {
+	const base = typeof options.base === "string" ? options.base : WARP_BASE;
 	if (typeof document === "undefined") {
 		options.onArrive?.();
 		return null;
@@ -52,7 +54,7 @@ function playWarp(options) {
 		"inset:0",
 		"z-index:2147483000",
 		"pointer-events:none",
-		`background:${WARP_BASE}`
+		`background:${base}`
 	].join(";");
 
 	const canvas = document.createElement("canvas");
@@ -121,7 +123,7 @@ function playWarp(options) {
 
 		context.setTransform(ratio, 0, 0, ratio, 0, 0);
 		context.globalCompositeOperation = "source-over";
-		context.fillStyle = WARP_BASE;
+		context.fillStyle = base;
 		context.fillRect(0, 0, width, height);
 
 		const cx = width / 2;

@@ -6,8 +6,8 @@
  *     window.__ModuleLoader__.load({ id, factory: (require) => { … } })
  *
  * and every module body stays inside that factory so CSS and module-scope state
- * are materialized on first import. This script inlines `src/styles.css` and
- * `src/graph-model.js` into `src/client.js` and wraps the result — no bundler, no
+ * are materialized on first import. This script inlines `src/styles.css`,
+ * `src/settings.js`, `src/graph-model.js` and `src/warp.js` into `src/client.js` and wraps the result — no bundler, no
  * dependencies, nothing to keep in sync by hand.
  *
  * Usage: node scripts/build.mjs
@@ -51,6 +51,7 @@ function stylePrelude(css) {
 	].join("\n");
 }
 
+const look = inlineModel(source("src/settings.js"));
 const model = inlineModel(source("src/graph-model.js"));
 const warp = inlineModel(source("src/warp.js"));
 const client = source("src/client.js").trim();
@@ -67,6 +68,9 @@ const bundle = [
 	"		Object.defineProperty(exports, Symbol.toStringTag, { value: \"Module\" });",
 	"",
 	stylePrelude(css),
+	"",
+	"		// ── src/settings.js ────────────────────────────────────────────",
+	look,
 	"",
 	"		// ── src/graph-model.js ─────────────────────────────────────────",
 	model,
@@ -96,4 +100,4 @@ if (syntax.status !== 0) {
 
 const digest = createHash("sha256").update(bundle).digest("hex").slice(0, 16);
 console.log(`lib/client.js  ${bundle.length} bytes  sha256:${digest}`);
-console.log(`  model ${model.length}  warp ${warp.length}  client ${client.length}  css ${css.length}`);
+console.log(`  settings ${look.length}  model ${model.length}  warp ${warp.length}  client ${client.length}  css ${css.length}`);

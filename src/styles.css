@@ -950,5 +950,5 @@
 /* Chat surfaces read as the star's own plane rather than a stock sheet. */
 body[data-dgv-inside] [data-dsh-conversation-root],
 body[data-dgv-inside] [data-dsh-main-panel] {
-	background-color: #1c1c1c !important;
+	background-color: var(--dgv-inside-base, #1c1c1c) !important;
 }

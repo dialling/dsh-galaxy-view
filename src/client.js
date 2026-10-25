@@ -20,8 +20,6 @@ const NS = "graph";
 const PANEL_ID = "graph";
 const STORE_KEY = "dsh-graph-view:settings";
 const PRESET_KEY = "dsh-graph-view:presets";
-/** Deep space matches Obsidian's dark theme surface (`--color-base-00: #1C1C1C`). */
-const SPACE = "#1c1c1c";
 const EMPTY_SESSIONS = { phase: "loading", ids: [], byId: {} };
 const EMPTY_WORKSPACES = { phase: "loading", items: [], archivedSessionIds: [] };
 
@@ -101,6 +99,7 @@ const zh = {
 	"preset.clusters.sub": "五团聚集·紧凑",
 	"preset.plate.sub": "平面阵列·极薄",
 	"preset.tree.sub": "放射枝干·条理",
+	"theme.deepfield": "深空",
 	"theme.hubble": "哈勃",
 	"theme.neon": "霓虹",
 	"theme.sunset": "落日",
@@ -222,6 +221,7 @@ const en = {
 	"preset.clusters.sub": "五团聚集·紧凑",
 	"preset.plate.sub": "平面阵列·极薄",
 	"preset.tree.sub": "放射枝干·条理",
+	"theme.deepfield": "Deep Field",
 	"theme.hubble": "Hubble",
 	"theme.neon": "Neon",
 	"theme.sunset": "Sunset",
@@ -286,81 +286,23 @@ function relativeTime(timestamp, t) {
  * Presets, palettes and defaults
  * ------------------------------------------------------------------ */
 
-/**
- * Eight hand-tuned looks. Each one is a partial override on {@link DEFAULTS}; the parts
- * it does not mention stay as they were, which is what makes "自定义" meaningful.
- */
-const PRESETS = {
-	galaxy: { layout: "spiral", theme: "hubble", brightness: 0.5, bloom: 0.44, threshold: 0.24, veil: 0.34, field: 0.7, shellSize: 1, shellGlow: 1, mist: 0.34, backdrop: true, arms: 2, twist: 4.3, thickness: 1, spread: 1, orbitSpeed: 0.35 },
-	rings: { layout: "rings", theme: "sunset", brightness: 0.48, bloom: 0.5, threshold: 0.2, veil: 0.2, field: 0.5, shellSize: 1, shellGlow: 0.85, mist: 0.4, backdrop: true, arms: 1, twist: 1.3, thickness: 0.5, spread: 1.2, orbitSpeed: 0.4 },
-	lattice: { layout: "lattice", theme: "aurora", brightness: 0.46, bloom: 0.34, threshold: 0.28, veil: 0.16, field: 0.45, shellSize: 0.9, shellGlow: 0.8, mist: 0.6, backdrop: true, arms: 2, twist: 3, thickness: 1, spread: 0.9, orbitSpeed: 0.26 },
-	bubble: { layout: "bubble", theme: "neon", brightness: 0.44, bloom: 0.52, threshold: 0.22, veil: 0.3, field: 0.5, shellSize: 1.15, shellGlow: 0.9, mist: 0.586, backdrop: true, arms: 2, twist: 3.4, thickness: 1, spread: 1, orbitSpeed: 0.3 },
-	helix: { layout: "helix", theme: "cyber", brightness: 0.5, bloom: 0.46, threshold: 0.22, veil: 0.18, field: 0.48, shellSize: 1, shellGlow: 0.85, mist: 0.55, backdrop: true, arms: 2, twist: 4, thickness: 1.1, spread: 1, orbitSpeed: 0.32 },
-	clusters: { layout: "clusters", theme: "matrix", brightness: 0.46, bloom: 0.5, threshold: 0.2, veil: 0.24, field: 0.5, shellSize: 1, shellGlow: 0.85, mist: 0.5, backdrop: true, arms: 2, twist: 3, thickness: 1, spread: 1, orbitSpeed: 0.28 },
-	plate: { layout: "plate", theme: "hubble", brightness: 0.5, bloom: 0.26, threshold: 0.3, veil: 0.08, field: 0.45, shellSize: 0.85, shellGlow: 0.8, mist: 0.52, backdrop: true, arms: 2, twist: 3, thickness: 1, spread: 0.8, orbitSpeed: 0.22 },
-	tree: { layout: "tree", theme: "neon", brightness: 0.48, bloom: 0.42, threshold: 0.24, veil: 0.22, field: 0.48, shellSize: 1, shellGlow: 0.85, mist: 0.552, backdrop: true, arms: 2, twist: 3.6, thickness: 1, spread: 1, orbitSpeed: 0.3 }
-};
-
-/** Palettes: node hues, backdrop veils, nucleus tint and filament tint. */
-const THEMES = {
-	hubble: { hues: [265, 208, 158, 28, 330, 96, 190, 12], veils: ["rgba(70,58,150,0.20)", "rgba(28,76,140,0.16)", "rgba(120,56,132,0.14)", "rgba(24,104,104,0.1)"], nucleus: [255, 246, 226], link: [150, 180, 235] },
-	neon: { hues: [190, 300, 150, 50, 265, 330, 175, 210], veils: ["rgba(20,90,150,0.22)", "rgba(140,40,160,0.18)", "rgba(20,130,140,0.14)", "rgba(60,40,140,0.16)"], nucleus: [220, 250, 255], link: [120, 220, 255] },
-	sunset: { hues: [22, 342, 46, 300, 10, 40, 320, 355], veils: ["rgba(150,60,50,0.2)", "rgba(120,60,120,0.16)", "rgba(170,90,50,0.14)", "rgba(90,50,90,0.14)"], nucleus: [255, 226, 180], link: [255, 190, 160] },
-	cyber: { hues: [175, 285, 320, 200, 240, 300, 160, 265], veils: ["rgba(20,110,120,0.22)", "rgba(110,40,150,0.2)", "rgba(30,90,160,0.16)", "rgba(140,40,110,0.12)"], nucleus: [210, 255, 245], link: [140, 255, 240] },
-	matrix: { hues: [120, 140, 96, 160, 110, 132, 88, 150], veils: ["rgba(20,80,40,0.22)", "rgba(20,110,60,0.16)", "rgba(40,70,30,0.14)", "rgba(20,60,50,0.12)"], nucleus: [220, 255, 220], link: [120, 255, 160] },
-	aurora: { hues: [155, 190, 280, 120, 210, 300, 170, 265], veils: ["rgba(30,110,110,0.2)", "rgba(70,60,150,0.18)", "rgba(40,130,120,0.14)", "rgba(60,110,160,0.12)"], nucleus: [230, 250, 240], link: [170, 240, 220] }
-};
-
-/** Everything the panel can change, with the shipped defaults. */
-const DEFAULTS = {
-	preset: "galaxy",
-	layout: "spiral",
-	theme: "hubble",
-	brightness: 0.5,
-	bloom: 0.44,
-	threshold: 0.24,
-	veil: 0.34,
-	field: 0.7,
-	shellSize: 1,
-	shellGlow: 1,
-	mist: 0.34,
-	backdrop: true,
-	arms: 2,
-	twist: 4.3,
-	thickness: 1,
-	spread: 1,
-	autoOrbit: true,
-	orbitSpeed: 0.35,
-	quality: "auto",
-	hidden: [],
-	only: null,
-	orphans: false,
-	empty: false,
-	lens: null,
-	filterText: ""
-};
-
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 
-/** Read persisted settings, ignoring anything that no longer parses. */
+/**
+ * Read persisted settings, ignoring anything that no longer parses. An older
+ * settings version is migrated once (see migrateSettings) and written back.
+ */
 function loadSettings() {
+	let stored = null;
 	try {
 		const raw = window.localStorage.getItem(STORE_KEY);
-		if (raw === null) return { ...DEFAULTS };
-		const parsed = JSON.parse(raw);
-		if (parsed === null || typeof parsed !== "object") return { ...DEFAULTS };
-		const merged = { ...DEFAULTS, ...parsed };
-		merged.hidden = Array.isArray(merged.hidden) ? merged.hidden.filter((id) => typeof id === "string") : [];
-		// "Only this workspace" pointing at a hidden workspace leaves nothing to draw.
-		// Both halves are stale (a pin survives the hide), so drop the pin and unhide it.
-		if (merged.only !== null && merged.hidden.includes(merged.only)) {
-			merged.hidden = merged.hidden.filter((id) => id !== merged.only);
-			merged.only = null;
-		}
-		return merged;
+		stored = raw === null ? null : JSON.parse(raw);
 	} catch (error) {
-		return { ...DEFAULTS };
+		stored = null;
 	}
+	const { settings, migrated } = migrateSettings(stored);
+	if (migrated) saveSettings(settings);
+	return settings;
 }
 
 /** Persist settings; storage failures are not worth interrupting the view for. */
@@ -460,13 +402,13 @@ function dustSprite(hue) {
  * @returns offscreen canvas.
  */
 function bakeNebula(width, height, dpr, themeName, veil) {
-	const theme = THEMES[themeName] ?? THEMES.hubble;
+	const theme = themeOf(themeName);
 	const canvas = document.createElement("canvas");
 	canvas.width = Math.max(1, Math.round(width * dpr));
 	canvas.height = Math.max(1, Math.round(height * dpr));
 	const context = canvas.getContext("2d");
 	context.scale(dpr, dpr);
-	context.fillStyle = SPACE;
+	context.fillStyle = theme.base;
 	context.fillRect(0, 0, width, height);
 
 	const span = Math.max(width, height);
@@ -487,6 +429,7 @@ function bakeNebula(width, height, dpr, themeName, veil) {
 	});
 	context.globalAlpha = 1;
 
+	if (!theme.vignette) return canvas;
 	// Vignette keeps the eye on the disc.
 	const vignette = context.createRadialGradient(width / 2, height / 2, span * 0.25, width / 2, height / 2, span * 0.78);
 	vignette.addColorStop(0, "rgba(0,0,0,0)");
@@ -812,16 +755,11 @@ function GraphScene(props) {
 	 */
 	const enterSession = (node) => {
 		if (node === undefined) return;
-		const theme = THEMES[settings.theme] ?? THEMES.hubble;
-	const [lr, lg, lb] = theme.link;
-	const linkColor = {
-		touched: `rgba(${lr},${lg},${lb},0.85)`,
-		lineage: `rgba(${lr},${lg},${lb},0.26)`,
-		plain: `rgba(${lr},${lg},${lb},0.16)`
-	};
+		const theme = themeOf(settings.theme);
 		const index = Number.isFinite(node.hueIndex) ? node.hueIndex : 0;
 		playWarp({
 			hue: theme.hues[index % theme.hues.length],
+			base: theme.base,
 			onArrive: () => onEnterSession?.(node)
 		});
 	};
@@ -957,7 +895,7 @@ function GraphScene(props) {
 			state.hoverId = id;
 			state.hoverX = state.pointerX;
 			state.hoverY = state.pointerY;
-			setHover(star === null ? null : { id, kind: star.node.kind, label: star.node.label, path: star.node.path ?? star.node.cwd ?? "", meta: nodeMeta(star.node, t), hue: (THEMES[state.settings.theme] ?? THEMES.hubble).hues[star.node.hueIndex % 8] });
+			setHover(star === null ? null : { id, kind: star.node.kind, label: star.node.label, path: star.node.path ?? star.node.cwd ?? "", meta: nodeMeta(star.node, t), hue: themeOf(state.settings.theme).hues[star.node.hueIndex % 8] });
 		}
 		if (star !== null) {
 			// Hovering a star parks the idle cruise so the target stops drifting away.
@@ -1089,13 +1027,7 @@ function GraphScene(props) {
 		}
 	};
 
-	const theme = THEMES[settings.theme] ?? THEMES.hubble;
-	const [lr, lg, lb] = theme.link;
-	const linkColor = {
-		touched: `rgba(${lr},${lg},${lb},0.85)`,
-		lineage: `rgba(${lr},${lg},${lb},0.26)`,
-		plain: `rgba(${lr},${lg},${lb},0.16)`
-	};
+	const theme = themeOf(settings.theme);
 	const cardNode = card === null ? null : graph.nodes.find((item) => item.id === card.id) ?? null;
 	const cardHue = cardNode === null ? 0 : theme.hues[(Number.isFinite(cardNode.hueIndex) ? cardNode.hueIndex : 0) % theme.hues.length];
 	const cardPath = cardNode === null ? "" : cardNode.kind === "folder" ? cardNode.path ?? "" : cardNode.cwd ?? "";
@@ -1165,7 +1097,7 @@ function GraphScene(props) {
 									},
 									onDoubleClick: () => enterSession(child)
 								},
-								h("span", { className: `dgv-dot${child.running ? " dgv-dot-live" : ""}`, style: { background: `hsl(${(THEMES[settings.theme] ?? THEMES.hubble).hues[child.hueIndex % 8]}, 92%, 66%)` } }),
+								h("span", { className: `dgv-dot${child.running ? " dgv-dot-live" : ""}`, style: { background: `hsl(${themeOf(settings.theme).hues[child.hueIndex % 8]}, 92%, 66%)` } }),
 								h("span", { className: "dgv-item-name" }, child.label),
 								h("span", { className: "dgv-item-count" }, relativeTime(child.updatedAt, t))
 							)
@@ -1341,13 +1273,7 @@ function stepScene(state, delta) {
 
 /** Current node hue for the active palette. */
 function nodeHue(settings, node) {
-	const theme = THEMES[settings.theme] ?? THEMES.hubble;
-	const [lr, lg, lb] = theme.link;
-	const linkColor = {
-		touched: `rgba(${lr},${lg},${lb},0.85)`,
-		lineage: `rgba(${lr},${lg},${lb},0.26)`,
-		plain: `rgba(${lr},${lg},${lb},0.16)`
-	};
+	const theme = themeOf(settings.theme);
 	// A star without a palette slot must not produce a NaN hue: that would make
 	// createRadialGradient throw and silently kill the rest of the frame.
 	const index = Number.isFinite(node.hueIndex) ? node.hueIndex : 0;
@@ -1359,7 +1285,7 @@ function renderScene(canvas, state) {
 	const context = canvas.getContext("2d");
 	const settings = state.settings;
 	if (context === null || state.galaxy === null) return;
-	const theme = THEMES[settings.theme] ?? THEMES.hubble;
+	const theme = themeOf(settings.theme);
 	const [lr, lg, lb] = theme.link;
 	const linkColor = {
 		touched: `rgba(${lr},${lg},${lb},0.85)`,
@@ -1376,7 +1302,7 @@ function renderScene(canvas, state) {
 	if (state.nebula !== null) {
 		context.drawImage(state.nebula, 0, 0, width, height);
 	} else {
-		context.fillStyle = SPACE;
+		context.fillStyle = theme.base;
 		context.fillRect(0, 0, width, height);
 	}
 
@@ -1751,13 +1677,7 @@ function ControlPanel(props) {
 	const [open, setOpen] = useState({ look: true, filter: true, color: false, backdrop: false, bloom: false, shape: false, motion: false, advanced: false });
 	const toggle = (key) => setOpen((value) => ({ ...value, [key]: !value[key] }));
 	const custom = isCustomised(settings);
-	const theme = THEMES[settings.theme] ?? THEMES.hubble;
-	const [lr, lg, lb] = theme.link;
-	const linkColor = {
-		touched: `rgba(${lr},${lg},${lb},0.85)`,
-		lineage: `rgba(${lr},${lg},${lb},0.26)`,
-		plain: `rgba(${lr},${lg},${lb},0.16)`
-	};
+	const theme = themeOf(settings.theme);
 
 	return h(
 		"aside",
@@ -2214,7 +2134,7 @@ function GraphPage(props) {
 	if (loading || empty) {
 		return h(
 			"div",
-			{ className: "dgv-page" },
+			{ className: "dgv-page", style: { background: themeOf(settings.theme).base } },
 			header,
 			h(
 				"div",
@@ -2228,7 +2148,7 @@ function GraphPage(props) {
 
 	return h(
 		"div",
-		{ className: "dgv-page" },
+		{ className: "dgv-page", style: { background: themeOf(settings.theme).base } },
 		header,
 		h(
 			"div",
@@ -2383,6 +2303,7 @@ function run(ctx) {
 		if (interior === null) return;
 		interior.root.remove();
 		delete document.body.dataset.dgvInside;
+		document.body.style.removeProperty("--dgv-inside-base");
 		interior = null;
 	};
 	const paintInterior = (hue, label) => {
@@ -2407,6 +2328,7 @@ function run(ctx) {
 		root.append(glow, back);
 		document.body.append(root);
 		document.body.dataset.dgvInside = "1";
+		document.body.style.setProperty("--dgv-inside-base", themeOf(loadSettings().theme).base);
 		interior = { root };
 	};
 
