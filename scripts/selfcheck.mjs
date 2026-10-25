@@ -10,10 +10,17 @@ import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 
 import {
+	SKY_BUCKETS,
+	SKY_CLASSES,
+	SKY_RADIUS,
+	SKY_TINTS,
 	buildGraph,
 	cameraBasis,
 	createCamera,
 	createGalaxy,
+	createFieldStars,
+	createSkyShell,
+	FIELD_RADIUS,
 	fitDistance,
 	neighboursOf,
 	projectPoint
@@ -164,8 +171,52 @@ const center = projectPoint({ x: 0, y: 0, z: 0 }, basis, viewport);
 assert.ok(Math.hypot(center.x - viewport.width / 2, center.y - viewport.height / 2) < 1e-6, "the core projects to the viewport centre");
 assert.equal(neighboursOf(galaxy).get("s1").has("s2"), true, "neighbour index carries lineage");
 
-/* ── settings: versioned migration, palette, i18n ─────────────────────────── */
+/* ── sky shell: thin band, independent streams, bucketed ─────────────────── */
 
+const sky = createSkyShell();
+assert.equal(sky.count, SKY_CLASSES.reduce((sum, klass) => sum + klass.count, 0), "sky shell holds every class");
+assert.deepEqual(SKY_CLASSES.map((klass) => klass.count), [2600, 900, 250], "sky densities 2600/900/250");
+assert.deepEqual(SKY_CLASSES.map((klass) => klass.size), [1.2, 2, 3], "sky squares are 1.2/2/3 CSS px");
+const skyOctants = new Array(8).fill(0);
+const skyGrid = new Array(36).fill(0);
+for (let index = 0; index < sky.count; index += 1) {
+	const radius = Math.hypot(sky.x[index], sky.y[index], sky.z[index]);
+	assert.ok(radius >= SKY_RADIUS * 0.95 - 1e-5 && radius <= SKY_RADIUS * 1.05 + 1e-5, `sky grain ${index} sits in the thin shell (${radius.toFixed(3)})`);
+	skyOctants[(sky.x[index] > 0 ? 1 : 0) + (sky.y[index] > 0 ? 2 : 0) + (sky.z[index] > 0 ? 4 : 0)] += 1;
+	// Equal-area cells: azimuth x cos(polar). Correlated hash keys show up here as stripes.
+	const azimuth = (Math.atan2(sky.z[index], sky.x[index]) + Math.PI) / (2 * Math.PI);
+	const lift = (sky.y[index] / radius + 1) / 2;
+	skyGrid[Math.min(5, Math.floor(lift * 6)) * 6 + Math.min(5, Math.floor(azimuth * 6))] += 1;
+	if (index > 0) assert.ok(sky.cls[index] * SKY_TINTS.length + sky.tint[index] >= sky.cls[index - 1] * SKY_TINTS.length + sky.tint[index - 1], "sky grains are sorted by bucket");
+}
+const octantMean = sky.count / 8;
+for (const count of skyOctants) assert.ok(Math.abs(count - octantMean) / octantMean < 0.1, `sky octants balanced (${skyOctants.join(",")})`);
+const gridMean = sky.count / 36;
+const gridCv = Math.sqrt(skyGrid.reduce((sum, count) => sum + (count - gridMean) ** 2, 0) / 36) / gridMean;
+assert.ok(gridCv < 0.12, `sky 6x6 direction histogram is flat (cv ${gridCv.toFixed(3)})`);
+assert.ok(Math.min(...skyGrid) > gridMean * 0.7, "no empty or starved sky cell");
+for (let bucket = 0; bucket < SKY_BUCKETS; bucket += 1) {
+	for (let index = sky.bucketStart[bucket]; index < sky.bucketEnd[bucket]; index += 1) {
+		assert.equal(sky.cls[index] * SKY_TINTS.length + sky.tint[index], bucket, "bucket ranges hold their own grains");
+	}
+}
+const keepSorted = Array.from(sky.keep).sort((a, b) => a - b);
+assert.ok(Math.abs(keepSorted[Math.floor(sky.count * 0.3)] - 0.3) < 0.03, "thinning rank is uniform");
+assert.ok(sky.large.length === 250 && sky.large.every((index) => sky.cls[index] === 2), "twinkle candidates are the L class");
+for (const [r, g, b] of SKY_TINTS) {
+	assert.ok(Math.max(r, g, b) <= 230, "sky tints never reach pure white");
+	assert.ok((Math.max(r, g, b) - Math.min(r, g, b)) / Math.max(r, g, b) < 0.2, "sky tints stay near-neutral (S < 0.2)");
+}
+const field = createFieldStars();
+assert.equal(field.count, 780, "field stars: 780 inner grains");
+for (let index = 0; index < field.count; index += 1) {
+	const radius = Math.hypot(field.x[index], field.y[index], field.z[index]);
+	assert.ok(radius >= FIELD_RADIUS * 0.3 - 1e-5 && radius <= FIELD_RADIUS + 1e-5, "field stars stay in their hollow inner volume");
+}
+const skyTwin = createSkyShell();
+assert.deepEqual(Array.from(skyTwin.x.slice(0, 50)), Array.from(sky.x.slice(0, 50)), "sky shell is deterministic");
+
+/* ── settings: versioned migration, palette, i18n ─────────────────────────── */
 const oldFormat = {
 	preset: "galaxy",
 	theme: "hubble",
@@ -258,6 +309,20 @@ for (const name of Object.keys(THEMES)) usedKeys.add(`theme.${name}`);
 for (const name of Object.keys(PRESETS)) usedKeys.add(`preset.${name}`);
 for (const key of usedKeys) assert.ok(zhKeys.has(key) && enKeys.has(key), `t("${key}") is in both dictionaries`);
 assert.equal(clientSource.split("const linkColor = {").length - 1, 1, "only renderScene builds the filament palette");
+{
+	const skyStart = clientSource.indexOf("// Sky shell: hard squares");
+	const skyEnd = clientSource.indexOf("const basis = skyBasis;", skyStart);
+	assert.ok(skyStart >= 0 && skyEnd > skyStart, "renderScene has the sky shell pass");
+	const skyPass = clientSource.slice(skyStart, skyEnd);
+	const painterStart = clientSource.indexOf("function paintGrainSquares(");
+	const painter = clientSource.slice(painterStart, clientSource.indexOf("\n}\n", painterStart));
+	assert.ok(painterStart >= 0 && skyPass.includes("paintGrainSquares(context, SKY,"), "the shell pass paints squares through paintGrainSquares");
+	assert.ok(!skyPass.includes("createRadialGradient") && !painter.includes("createRadialGradient"), "the shell pass builds no gradients");
+	assert.ok(painter.includes("context.rect(") && painter.includes("Math.round(px * dpr - lead)"), "shell grains are pixel-snapped rects");
+	assert.ok(!/focal \/ depth|scale \*/.test(painter), "shell sizes are not distance-attenuated");
+	assert.ok(!/new |\[\]|\{ /.test(painter.slice(painter.indexOf("for (let grain"))), "the grain loop allocates nothing");
+	assert.ok(!/fillStyle = "#fff/i.test(skyPass), "shell never fills pure white");
+}
 /* ── bundle shape: the client loader contract ────────────────────────────── */
 
 const bundle = readFileSync(join(root, "lib/client.js"), "utf8");

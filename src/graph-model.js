@@ -795,8 +795,136 @@ function neighboursOf(graph) {
 	return map;
 }
 
-export {
-	ARMS,
+/**
+ * Sky shell: a thin, uniform shell of grains around the galaxy (unit radius, so the
+ * renderer scales it by the scene's shell radius). Every grain draws as a hard square
+ * of a fixed CSS size, so the arrays are flat and pre-sorted by (class, tint) bucket:
+ * the renderer fills each bucket with one path and allocates nothing per frame.
+ */
+const SKY_RADIUS = 1;
+const SKY_CLASSES = [
+	{ count: 2600, size: 1.2 },
+	{ count: 900, size: 2 },
+	{ count: 250, size: 3 }
+];
+/** Muted on-screen tints: neutral, light neutral, grey-blue, warm, bright (L-class only). */
+const SKY_TINTS = [
+	[191, 192, 196],
+	[203, 203, 204],
+	[155, 161, 176],
+	[206, 196, 179],
+	[210, 211, 212]
+];
+const SKY_BRIGHT_TINT = 4;
+const SKY_BUCKETS = SKY_CLASSES.length * SKY_TINTS.length;
+
+/** murmur3 finaliser: spreads one FNV-1a seed into independent streams. */
+function mix32(value) {
+	let mixed = value >>> 0;
+	mixed ^= mixed >>> 16;
+	mixed = Math.imul(mixed, 0x85ebca6b);
+	mixed ^= mixed >>> 13;
+	mixed = Math.imul(mixed, 0xc2b2ae35);
+	mixed ^= mixed >>> 16;
+	return mixed >>> 0;
+}
+
+/**
+ * Several uniforms in [0, 1) from one key. Keys that differ by a single character
+ * correlate under FNV-1a, so streams are derived from one hash instead of from
+ * sibling keys like `${key}:a` / `${key}:b`.
+ */
+function hashStreams(text, count) {
+	const seed = Math.floor(hash01(text) * 4294967296);
+	const out = new Array(count);
+	for (let index = 0; index < count; index += 1) out[index] = mix32(seed + Math.imul(index + 1, 0x9e3779b9)) / 4294967296;
+	return out;
+}
+
+/**
+ * Flat, bucket-sorted grain arrays from a class table and a placement function.
+ * @param classes - `[{ count, size }]` in draw order.
+ * @param key - hash namespace, distinct per grain set.
+ * @param place - `(streams, classIndex) => [x, y, z]` from four uniforms.
+ * @param brightShare - share of the last class drawn in the bright tint.
+ */
+function createGrainSet(classes, key, place, brightShare) {
+	const grains = [];
+	let serial = 0;
+	classes.forEach((klass, classIndex) => {
+		for (let index = 0; index < klass.count; index += 1) {
+			serial += 1;
+			const streams = hashStreams(`${key}/${serial}`, 7);
+			const [x, y, z] = place(streams, classIndex);
+			const pick = streams[4];
+			let tint = pick < 0.42 ? 0 : pick < 0.62 ? 1 : pick < 0.88 ? 2 : 3;
+			if (classIndex === classes.length - 1 && streams[6] < brightShare) tint = SKY_BRIGHT_TINT;
+			grains.push({ x, y, z, keep: streams[5], cls: classIndex, tint, bucket: classIndex * SKY_TINTS.length + tint });
+		}
+	});
+	grains.sort((left, right) => left.bucket - right.bucket);
+	const count = grains.length;
+	const set = {
+		count,
+		sizes: classes.map((klass) => klass.size),
+		x: new Float32Array(count),
+		y: new Float32Array(count),
+		z: new Float32Array(count),
+		keep: new Float32Array(count),
+		cls: new Uint8Array(count),
+		tint: new Uint8Array(count),
+		bucketStart: new Int32Array(SKY_BUCKETS),
+		bucketEnd: new Int32Array(SKY_BUCKETS),
+		large: []
+	};
+	set.bucketStart.fill(count);
+	grains.forEach((grain, index) => {
+		set.x[index] = grain.x;
+		set.y[index] = grain.y;
+		set.z[index] = grain.z;
+		set.keep[index] = grain.keep;
+		set.cls[index] = grain.cls;
+		set.tint[index] = grain.tint;
+		set.bucketStart[grain.bucket] = Math.min(set.bucketStart[grain.bucket], index);
+		set.bucketEnd[grain.bucket] = index + 1;
+		if (grain.cls === classes.length - 1) set.large.push(index);
+	});
+	return set;
+}
+
+/** Uniform direction from two uniforms, at radius `radius`. */
+function onSphere(u, v, radius) {
+	const angle = u * TAU;
+	const lift = v * 2 - 1;
+	const ring = Math.sqrt(Math.max(0, 1 - lift * lift));
+	return [Math.cos(angle) * ring * radius, lift * radius, Math.sin(angle) * ring * radius];
+}
+
+/**
+ * Build the sky shell: uniform directions, radius in a thin `[0.95, 1.05]` band.
+ * @returns flat grain arrays (see {@link createGrainSet}); 3% of the L class are bright.
+ */
+function createSkyShell() {
+	return createGrainSet(SKY_CLASSES, "sky-shell-grain", ([u, v, w]) => onSphere(u, v, SKY_RADIUS * (0.95 + 0.1 * w)), 0.03);
+}
+
+/**
+ * Field stars: a sparse inner volume of the same hard squares (the reference's
+ * parallax layer), `r = Rv·(0.3 + 0.7·∛u)` so nothing piles up at the centre.
+ * Unit radius is the shell's. Rv spans the node cloud (~0.7 of the shell): a thin
+ * shell alone projects twice as dense at the limb as in the middle, and this layer
+ * evens the disc out; a tighter volume reads as a central clump instead.
+ */
+const FIELD_RADIUS = 0.7;
+const FIELD_CLASSES = [
+	{ count: 546, size: 1.2 },
+	{ count: 234, size: 2 }
+];
+function createFieldStars() {
+	return createGrainSet(FIELD_CLASSES, "field-star-grain", ([u, v, w]) => onSphere(u, v, FIELD_RADIUS * (0.3 + 0.7 * Math.cbrt(w))), 0);
+}
+
+export {	ARMS,
 	SHAPE,
 	HUES,
 	hash01,
@@ -814,5 +942,17 @@ export {
 	fitDistance,
 	normalize,
 	cross,
-	neighboursOf
+	neighboursOf,
+	SKY_RADIUS,
+	SKY_CLASSES,
+	SKY_TINTS,
+	SKY_BRIGHT_TINT,
+	SKY_BUCKETS,
+	mix32,
+	hashStreams,
+	createGrainSet,
+	createSkyShell,
+	FIELD_RADIUS,
+	FIELD_CLASSES,
+	createFieldStars
 };
