@@ -1,0 +1,69 @@
+{
+  "name": "dsh-graph-view",
+  "version": "0.1.0",
+  "description": "Cinematic 3D galaxy graph for DeepSeek Harness — workspaces become suns on spiral arms, conversations become stars, one header button returns to the stock UI. · DSH 三维星系图：工作区是旋臂上的恒星，对话是星点，顶栏一键切回原版界面。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./src/*": "./src/*"
+  },
+  "files": [
+    "lib",
+    "src",
+    "locale",
+    "scripts",
+    "docs",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "selfcheck": "node scripts/selfcheck.mjs",
+    "check": "node scripts/build.mjs && node scripts/selfcheck.mjs",
+    "link": "node scripts/install-into-profile.mjs",
+    "prepack": "node scripts/build.mjs && node scripts/selfcheck.mjs"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek",
+    "deepseek-harness",
+    "graph",
+    "graph-view",
+    "knowledge-graph",
+    "obsidian",
+    "starfield",
+    "workspace",
+    "sessions",
+    "ui",
+    "galaxy",
+    "3d",
+    "spiral",
+    "canvas"
+  ],
+  "author": "a27",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/a27/dsh-graph-view.git"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  }
+}
