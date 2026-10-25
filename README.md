@@ -29,7 +29,6 @@ stock ones.
 | haloed sun | one workspace; hue fixed by workspace order, halo grows with its conversation count |
 | stars around a sun | that workspace's conversations; newer is brighter and bigger, running ones pulse |
 | faint filament | membership; fork / subagent to parent is a brighter curved thread |
-| warm core | galactic nucleus where the arms converge |
 | drifting dust | spiral arms, diffuse disc and field stars — backdrop, not clickable |
 
 The deep-space plane is Obsidian's dark-theme `--color-base-00: #1C1C1C` — canvas,
@@ -148,13 +147,19 @@ Zero runtime dependencies: only the loader-provided `react` plus the existing
 
 ## Publishing
 
-```bash
-npm run prepack      # build + selfcheck
-npm publish
-```
+The package is ready for the DSH community market; publishing itself is manual.
+In order:
 
-`dsh.bundle.patch`, `dsh.client`, `files`, `keywords` and `repository` are set;
-`locale/{zh,en}.json` carry the market-card copy.
+1. Create the public repo `dialling/dsh-graph-view` and push `main`.
+2. Add the GitHub topic `dsh-plugin`.
+3. `npm login`, then `npm publish` (`prepack` rebuilds and self-checks first).
+4. Optionally cut a `v0.2.0` GitHub release.
+5. Once the repo is at least a day old, open the market pull request against
+   `awesome-dsh-plugin/awesome-dsh-plugin`.
+
+The full checklist, the ready-to-paste market entry, and how to remove the
+local dev mount before testing a market install are in
+[PUBLISHING.md](PUBLISHING.md).
 
 ## License
 

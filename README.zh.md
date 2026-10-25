@@ -23,7 +23,6 @@
 | 带色晕的恒星 | 一个工作区；色相按工作区顺序固定，光晕越大对话越多 |
 | 恒星周围的星点 | 该工作区下的对话；越新越亮越大，运行中的会呼吸 |
 | 白色细丝 | 对话的归属关系；fork / 子智能体与父会话之间是更亮的弯丝 |
-| 中心白色光点 | 星系核：一颗小亮核（半径 16–40 px）加一层薄光晕，旋臂在这里汇合；刻意压小，不再是一颗占满中心的白球 |
 | 旋转的星尘 | 旋臂、盘面弥散星，纯背景，不可点 |
 | 包住整个星系的白色小球 | 「星空球壳」：真三维的球面点阵，跟星系共用同一个摄像机。每颗是缓存好的径向 sprite，纯白偏冷，近大远小 |
 | 星点 = 带色光点 | 对话/工作区仍是**带色相的 ~1 px 光核 + 柔和光晕**（工作区有 1.8–4.2 px 的实心核），靠色相和光晕和灰白球壳区分；球壳颗粒比上一版缩小约 35% |
@@ -143,13 +142,16 @@ ctx.workspaces / ctx.uiWorkspace / ctx.layout`。
 
 ## 发布
 
-```bash
-npm run prepack      # build + selfcheck
-npm publish
-```
+包已按 DSH 社区市场的要求备好；发布本身手动执行。按顺序：
 
-`dsh.bundle.patch`、`dsh.client`、`files`、`keywords`、`repository` 已备好；
-`locale/{zh,en}.json` 提供市场卡片文案。
+1. 建公开仓库 `dialling/dsh-graph-view`，推送 `main`。
+2. 给仓库加上 GitHub topic `dsh-plugin`。
+3. `npm login`，然后 `npm publish`（`prepack` 会先重新构建并自检）。
+4. 可选：打一个 `v0.2.0` 的 GitHub Release。
+5. 仓库满一天后，向 `awesome-dsh-plugin/awesome-dsh-plugin` 提市场收录 PR。
+
+完整清单、可直接粘贴的市场条目、以及测试市场安装前如何移除本地开发挂载，
+都写在 [PUBLISHING.md](PUBLISHING.md) 里。
 
 ## License
 
@@ -254,13 +256,16 @@ ctx.workspaces / ctx.uiWorkspace / ctx.layout`。
 
 ## 发布
 
-```bash
-npm run prepack      # build + selfcheck
-npm publish
-```
+包已按 DSH 社区市场的要求备好；发布本身手动执行。按顺序：
 
-`dsh.bundle.patch`、`dsh.client`、`files`、`keywords`、`repository` 已备好；
-`locale/{zh,en}.json` 提供市场卡片文案。
+1. 建公开仓库 `dialling/dsh-graph-view`，推送 `main`。
+2. 给仓库加上 GitHub topic `dsh-plugin`。
+3. `npm login`，然后 `npm publish`（`prepack` 会先重新构建并自检）。
+4. 可选：打一个 `v0.2.0` 的 GitHub Release。
+5. 仓库满一天后，向 `awesome-dsh-plugin/awesome-dsh-plugin` 提市场收录 PR。
+
+完整清单、可直接粘贴的市场条目、以及测试市场安装前如何移除本地开发挂载，
+都写在 [PUBLISHING.md](PUBLISHING.md) 里。
 
 ## License
 

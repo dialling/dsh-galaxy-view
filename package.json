@@ -1,6 +1,6 @@
 {
   "name": "dsh-graph-view",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Cinematic 3D galaxy graph for DeepSeek Harness — workspaces become suns on spiral arms, conversations become stars, one header button returns to the stock UI. · DSH 三维星系图：工作区是旋臂上的恒星，对话是星点，顶栏一键切回原版界面。",
   "type": "module",
   "main": "lib/index.js",
@@ -9,20 +9,19 @@
     "./client": "./lib/client.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json",
-    "./locale/*.json": "./locale/*.json",
-    "./src/*": "./src/*"
+    "./locale/*.json": "./locale/*.json"
   },
   "files": [
     "lib",
-    "src",
     "locale",
-    "scripts",
-    "docs/*.png",
-    "cordis.patch.yml",
     "README.md",
     "README.zh.md",
-    "LICENSE"
+    "CHANGELOG.md",
+    "LICENSE",
+    "cordis.patch.yml",
+    "assets/icon.svg"
   ],
+  "icon": "./assets/icon.svg",
   "scripts": {
     "build": "node scripts/build.mjs",
     "selfcheck": "node scripts/selfcheck.mjs",
@@ -48,14 +47,20 @@
     "spiral",
     "canvas"
   ],
-  "author": "a27",
+  "author": "dialling",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/a27/dsh-graph-view.git"
+    "url": "git+https://github.com/dialling/dsh-graph-view.git"
   },
+  "homepage": "https://github.com/dialling/dsh-graph-view#readme",
+  "bugs": "https://github.com/dialling/dsh-graph-view/issues",
   "engines": {
-    "node": ">=20"
+    "node": ">=20",
+    "dsh": ">=0.2.1-0 <0.3.0-0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
   },
   "dsh": {
     "bundle": {

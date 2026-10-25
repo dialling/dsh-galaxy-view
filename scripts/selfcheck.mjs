@@ -4,7 +4,7 @@
  * No framework: `node scripts/selfcheck.mjs`. Exits non-zero on the first failed
  * expectation, so it is usable as a `prepack` gate.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
@@ -489,7 +489,45 @@ const paletteAt = renderBody.indexOf("const [lr, lg, lb] = theme.link");
 const guidesAt = renderBody.indexOf("Layout guides:");
 assert.ok(paletteAt >= 0 && guidesAt >= 0, "renderScene binds the filament palette and draws the layout guides");
 assert.ok(paletteAt < guidesAt, "filament palette is bound before the layout guides draw");
-console.log(
-	`selfcheck ok — ${galaxy.nodes.length} stars (${graph.stats.folders} suns), ${galaxy.dust.length} dust grains, ` +
+/* ── release packaging: metadata, files whitelist, exports, market files ──── */
+{
+	const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+	assert.equal(pkg.version, "0.2.0", "release version");
+	assert.equal(pkg.author, "dialling", "author is dialling");
+	assert.equal(pkg.repository?.url, "git+https://github.com/dialling/dsh-graph-view.git", "repository points at the dialling repo");
+	assert.equal(pkg.homepage, "https://github.com/dialling/dsh-graph-view#readme", "homepage matches the repo");
+	assert.equal(pkg.bugs, "https://github.com/dialling/dsh-graph-view/issues", "bugs matches the repo");
+	assert.deepEqual(pkg.peerDependencies, { "@deepseek-ai/cordis": "^4.0.1" }, "cordis is a peer dependency");
+	assert.equal(pkg.engines?.dsh, ">=0.2.1-0 <0.3.0-0", "dsh engine range includes the 0.2.1 pre-releases");
+	assert.ok(pkg.engines?.node, "node engine range kept");
+	assert.ok(pkg.dependencies === undefined, "zero runtime dependencies");
+	assert.ok(pkg.keywords.includes("dsh-plugin"), "market keyword present");
+	assert.equal(pkg.dsh?.bundle?.patch, "./cordis.patch.yml", "dsh bundle patch kept");
+	assert.equal(pkg.dsh?.client?.platform, "web", "dsh client block kept");
+	assert.equal(pkg.icon, "./assets/icon.svg", "top-level icon declared for the market");
+	assert.ok(existsSync(join(root, pkg.icon)), "the icon file exists");
+	assert.ok(statSync(join(root, pkg.icon)).size <= 256 * 1024, "the icon is ≤ 256 KiB");
+	assert.deepEqual(
+		[...pkg.files].sort(),
+		["CHANGELOG.md", "LICENSE", "README.md", "README.zh.md", "assets/icon.svg", "cordis.patch.yml", "lib", "locale"].sort(),
+		"files ships only lib, locale, the readmes, LICENSE, CHANGELOG, the patch and the icon"
+	);
+	for (const [key, target] of Object.entries(pkg.exports)) {
+		assert.ok(!key.startsWith("./src") && !target.includes("/src/"), `exports ${key} does not touch src`);
+		if (target.includes("*")) assert.ok(existsSync(join(root, dirname(target))), `exports ${key} directory exists`);
+		else assert.ok(existsSync(join(root, target)), `exports ${key} target exists`);
+	}
+	const shots = JSON.parse(readFileSync(join(root, "screenshots.json"), "utf8"));
+	assert.ok(Array.isArray(shots) && shots.length >= 1 && shots.length <= 8, "screenshots.json lists 1-8 images");
+	for (const shot of shots) {
+		assert.ok(/^docs\/[\w.-]+\.png$/.test(shot), `${shot} is a repo-relative docs png`);
+		assert.ok(existsSync(join(root, shot)), `${shot} exists`);
+	}
+	assert.ok(readFileSync(join(root, "CHANGELOG.md"), "utf8").includes("## 0.2.0"), "CHANGELOG has the 0.2.0 entry");
+	assert.ok(/copyright \(c\) 2026 dialling/i.test(readFileSync(join(root, "LICENSE"), "utf8")), "LICENSE copyright is dialling");
+	assert.ok(existsSync(join(root, "PUBLISHING.md")), "PUBLISHING.md exists");
+	assert.ok(!pkg.files.some((entry) => entry.includes("PUBLISHING") || entry.includes("screenshots")), "the publishing guide and screenshots manifest are not shipped");
+}
+console.log(	`selfcheck ok — ${galaxy.nodes.length} stars (${graph.stats.folders} suns), ${galaxy.dust.length} dust grains, ` +
 		`extent ${galaxy.extent.toFixed(2)}, camera ${camera.distance.toFixed(2)}, bundle ${bundle.length} bytes`
 );
