@@ -621,8 +621,8 @@ function GraphScene(props) {
 			state.bloomed = false;
 			state.tourTarget = null;
 		}
-		state.guides = layoutGuides(settings.layout);
 		state.galaxy = createGalaxy(graph, state.token + 1, { layout: settings.layout, arms: settings.arms, twist: settings.twist, thickness: settings.thickness, spread: settings.spread });
+		state.guides = layoutGuides(settings.layout, state.galaxy.offset);
 		state.nodes = graph.nodes.length;
 		state.links = graph.links.length;
 		state.neighbours = neighboursOf(graph);

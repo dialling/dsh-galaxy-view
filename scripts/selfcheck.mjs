@@ -108,7 +108,11 @@ const withEmpty = buildGraph(
 );
 assert.equal(withEmpty.stats.folders, 3, "empty toggle draws the idle sun");
 
-/* ── galaxy: deterministic, flat, inside the disc ────────────────────────── */
+/* ── galaxy: deterministic, inside the shell, two arms, sparse core ──────── */
+
+/* The renderer draws the sky shell at 1.22 x extent (clamped to [1, 2.1]). */
+const shellOf = (built) => Math.min(2.1, Math.max(1, built.extent * 1.22));
+const radius3 = (node) => Math.hypot(node.x, node.y, node.z);
 
 const galaxy = createGalaxy(graph, 1);
 const again = createGalaxy(graph, 1);
@@ -120,8 +124,9 @@ assert.deepEqual(
 
 for (const node of galaxy.nodes) {
 	assert.ok([node.x, node.y, node.z].every(Number.isFinite), `finite position for ${node.id}`);
-	assert.ok(Math.hypot(node.x, node.z) <= 1.05, `inside the disc for ${node.id}`);
-	assert.ok(Math.abs(node.y) <= 0.12, `thin disc for ${node.id}`);
+	assert.ok(radius3(node) <= galaxy.extent + 1e-9 && radius3(node) <= shellOf(galaxy) * 0.85, `inside the shell for ${node.id}`);
+	assert.ok(Math.abs(node.y) <= 0.14, `moderate disc thickness for ${node.id}`);
+	assert.ok(Math.hypot(node.x, node.z) >= 0.12, `sparse core: ${node.id} stays off the centre`);
 	assert.ok(node.size > 0, `positive star size for ${node.id}`);
 	assert.ok(Number.isFinite(node.hueIndex), `palette slot for ${node.id}`);
 }
@@ -137,8 +142,8 @@ assert.notDeepEqual(
 	"shape parameters rearrange the arms"
 );
 for (const node of shaped.nodes) {
-	assert.ok(Math.abs(node.y) <= 0.12, `thin disc after reshaping ${node.id}`);
-	assert.ok(Math.hypot(node.x, node.z) <= 1.15, `inside the disc after reshaping ${node.id}`);
+	assert.ok(Math.abs(node.y) <= 0.14 * 0.4 + 0.01, `thickness 0.4 flattens ${node.id}`);
+	assert.ok(radius3(node) <= shaped.extent + 1e-9, `inside the shell after reshaping ${node.id}`);
 }
 assert.equal(createGalaxy(graph, 1, { arms: 3 }).nodes.filter((node) => node.kind === "folder").map((node) => node.arm).sort().join(","), "0,1", "three arms still fit two suns");
 assert.ok(galaxy.extent > 0.5 && galaxy.extent <= 1.25, `extent within the unit disc (${galaxy.extent.toFixed(2)})`);
@@ -148,6 +153,67 @@ assert.equal(folders.length, 2, "two suns");
 assert.ok(folders[0].discRadius <= folders[1].discRadius, "suns run outward along the arms");
 assert.ok(new Set(folders.map((folder) => folder.arm)).size >= 1, "suns take arm slots");
 
+/* A workspace-sized fixture: fifteen suns, two of them very busy, like a real
+ * install. The cloud must fill the inner ~0.7 of the shell (r95 ≈ shell / 1.45). */
+const bigCounts = [2, 5, 1, 1, 5, 3, 78, 3, 3, 15, 10, 1, 2, 103, 10];
+const bigWorkspaces = { items: [], archivedSessionIds: [] };
+const bigSessions = { ids: [], byId: {} };
+bigCounts.forEach((count, folderIndex) => {
+	const sessionIds = [];
+	for (let index = 0; index < count; index += 1) {
+		const id = `big-${folderIndex}-${index}`;
+		sessionIds.push(id);
+		bigSessions.ids.push(id);
+		bigSessions.byId[id] = { id, displayTitle: id, cwd: `/w/${folderIndex}`, updatedAt: "2026-10-20T00:00:00Z" };
+	}
+	bigWorkspaces.items.push({ workspaceId: `bw${folderIndex}`, path: `/w/${folderIndex}`, title: `w${folderIndex}`, sessionIds });
+});
+const bigGraph = buildGraph(bigWorkspaces, bigSessions, {});
+const percentile = (values, share) => values.slice().sort((a, b) => a - b)[Math.floor(values.length * share)];
+const bigShapes = [
+	{},
+	{ arms: 3 },
+	{ arms: 4 },
+	{ twist: 1 },
+	{ twist: 9 },
+	{ thickness: 0.15 },
+	{ thickness: 3 },
+	{ spread: 0.3 },
+	{ spread: 2.4 },
+	...["rings", "lattice", "bubble", "helix", "clusters", "plate", "tree"].map((layout) => ({ layout })),
+	...["rings", "lattice", "bubble", "helix", "clusters", "plate", "tree"].map((layout) => ({ layout, spread: 2.4, thickness: 3 }))
+];
+for (const shape of bigShapes) {
+	const label = JSON.stringify(shape);
+	const built = createGalaxy(bigGraph, 1, shape);
+	const first = built.nodes.map((node) => [node.x, node.y, node.z]);
+	assert.deepEqual(createGalaxy(bigGraph, 1, shape).nodes.map((node) => [node.x, node.y, node.z]), first, `${label}: deterministic`);
+	const shell = shellOf(built);
+	assert.ok(built.extent > 0.5 && built.extent <= 1.7, `${label}: extent ${built.extent.toFixed(2)} in range`);
+	for (const node of built.nodes) {
+		assert.ok([node.x, node.y, node.z].every(Number.isFinite), `${label}: finite ${node.id}`);
+		assert.ok(radius3(node) <= shell * 0.85, `${label}: ${node.id} inside the shell`);
+	}
+	const r95 = percentile(built.nodes.map(radius3), 0.95) / shell;
+	assert.ok(r95 >= 0.55 && r95 <= 0.82, `${label}: node cloud r95 ${r95.toFixed(2)} of the shell`);
+	if (shape.layout === undefined) {
+		const thick = Math.max(0.15, Math.min(3, shape.thickness ?? 1));
+		assert.ok(built.nodes.every((node) => Math.abs(node.y) <= 0.14 * thick + 0.01), `${label}: disc thickness follows the slider`);
+		const bigFolders = built.nodes.filter((node) => node.kind === "folder");
+		const armsUsed = new Set(bigFolders.map((node) => node.arm)).size;
+		assert.equal(armsUsed, Math.round(shape.arms ?? 2), `${label}: one arm per arm slot`);
+		const core = built.nodes.filter((node) => Math.hypot(node.x, node.z) < 0.15 * shell).length / built.nodes.length;
+		assert.ok(core <= 0.04, `${label}: sparse core (${(core * 100).toFixed(1)}% within 0.15 R)`);
+		for (let arm = 0; arm < armsUsed; arm += 1) {
+			const radii = bigFolders.filter((node) => node.arm === arm).map((node) => node.discRadius);
+			assert.ok(radii.every((value, index) => index === 0 || value >= radii[index - 1]), `${label}: suns run outward along arm ${arm}`);
+		}
+		const innerSuns = bigFolders.filter((node) => node.discRadius < 0.36).length;
+		assert.equal(innerSuns, 0, `${label}: suns spread along the arms, none packed inside r 0.36`);
+		const innerStars = built.nodes.filter((node) => Math.hypot(node.x, node.z) < 0.36).length / built.nodes.length;
+		assert.ok(innerStars <= 0.1, `${label}: stars spread along the arms (${(innerStars * 100).toFixed(1)}% inside r 0.36)`);
+	}
+}
 /* ── camera: orthonormal basis, everything in front, framed ──────────────── */
 
 const viewport = { width: 1280, height: 800 };

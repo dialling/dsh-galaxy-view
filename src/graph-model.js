@@ -205,11 +205,74 @@ function buildGraph(workspaces, sessions, options) {
 const LAYOUTS = ["spiral", "rings", "lattice", "bubble", "helix", "clusters", "plate", "tree"];
 
 /**
+ * Spiral arms run from SPIRAL_INNER to SPIRAL_OUTER. The inner radius keeps the core
+ * sparse (only faint dust reaches the middle); radius grows with √t so stars spread
+ * evenly by arc length instead of crowding the short inner turns.
+ */
+const SPIRAL_INNER = 0.36;
+const SPIRAL_OUTER = 1;
+const RING_RADII = [0.34, 0.56, 0.78, 1];
+const LATTICE_SPAN = 0.9;
+const LATTICE_LIFT = 0.7;
+const HELIX_RADIUS = 0.66;
+const HELIX_HEIGHT = 1.4;
+const HELIX_TURNS = 1.6;
+const CLUSTER_BLOBS = 5;
+const CLUSTER_RADIUS = 0.62;
+const CLUSTER_LIFT = 0.16;
+
+function spiralRadius(t) {
+	const share = Math.max(0, Math.min(1, t));
+	return Math.sqrt(SPIRAL_INNER * SPIRAL_INNER + (SPIRAL_OUTER * SPIRAL_OUTER - SPIRAL_INNER * SPIRAL_INNER) * share);
+}
+
+/** Arms wind 1.8x the twist per unit radius, so each arm sweeps ~280° and the outer turns cover every side of the disc. */
+function spiralAngle(arm, arms, radius, twist) {
+	return (arm / arms) * TAU + radius * 1.8 * (twist + (arm % 2 === 1 ? 0.42 : 0));
+}
+
+/**
+ * Split every spiral arm into one stretch per folder, longer for busier folders, so
+ * a workspace's conversations trail along its arm instead of balling up at its sun.
+ * @param counts - session count per folder, in folder order.
+ * @param arms - arm count; folder `i` rides arm `i % arms`.
+ * @returns `[{ t0, t1 }]` per folder, as shares of its arm (0 = inner end).
+ */
+function spiralSegments(counts, arms) {
+	const weights = counts.map((count) => 0.6 + Math.pow(Math.max(0, count), 0.8));
+	const totals = new Array(arms).fill(0);
+	weights.forEach((weight, index) => {
+		totals[index % arms] += weight;
+	});
+	const cursor = new Array(arms).fill(0);
+	return weights.map((weight, index) => {
+		const arm = index % arms;
+		const t0 = cursor[arm] / totals[arm];
+		cursor[arm] += weight;
+		return { t0, t1: cursor[arm] / totals[arm] };
+	});
+}
+
+/** Lattice slot `index`: grid points ordered by distance from the middle, so any count fills a ball. */
+function latticeSlot(index, count) {
+	let half = 1;
+	while ((2 * half + 1) ** 3 < count) half += 1;
+	const points = [];
+	for (let gx = -half; gx <= half; gx += 1) {
+		for (let gy = -half; gy <= half; gy += 1) {
+			for (let gz = -half; gz <= half; gz += 1) points.push([gx, gy, gz]);
+		}
+	}
+	points.sort((a, b) => a[0] * a[0] + a[1] * a[1] + a[2] * a[2] - (b[0] * b[0] + b[1] * b[1] + b[2] * b[2]));
+	return { grid: points[index % points.length], half };
+}
+
+/**
  * One folder position for a given silhouette.
  *
- * Every layout keeps the same contract — the outermost body sits near radius 1 and
- * Y stays inside `thickness` — so the camera framing, picking, tracking and the dust
- * layer all keep working without knowing which shape is on screen.
+ * Every layout keeps the same contract — the outermost body sits near radius 1 — so
+ * the shell framing, picking, tracking and the dust layer all keep working without
+ * knowing which shape is on screen.
  *
  * @param layout - one of {@link LAYOUTS}.
  * @param index - folder ordinal.
@@ -217,10 +280,10 @@ const LAYOUTS = ["spiral", "rings", "lattice", "bubble", "helix", "clusters", "p
  * @param salt - re-roll seed.
  * @param folderId - id, for stable jitter.
  * @param shape - resolved shape numbers (`arms`, `twist`, `thickness`, `spread`).
- * @returns position plus the resolved radius and arm/blot index.
+ * @param segment - spiral only: the folder's `{ t0, t1 }` stretch of its arm.
+ * @returns position plus the resolved radius, arm/blot index and what its members need.
  */
-function placeFolder(layout, index, count, salt, folderId, shape) {
-	const share = count <= 1 ? 0.45 : index / Math.max(1, count - 1);
+function placeFolder(layout, index, count, salt, folderId, shape, segment) {
 	const jitter = hash01(`${folderId}:${salt}`) - 0.5;
 	const jitterY = hash01(`${folderId}:h${salt}`) - 0.5;
 	const { arms, twist, thickness } = shape;
@@ -228,27 +291,20 @@ function placeFolder(layout, index, count, salt, folderId, shape) {
 
 	if (layout === "rings") {
 		// Clean concentric orbits: no arm twist at all, four rings deep.
-		const ring = index % 4;
-		const radius = 0.26 + ring * 0.24;
-		const angle = (index / Math.max(1, Math.ceil(count / 4))) * TAU + jitter * 0.06;
-		return { x: Math.cos(angle) * radius, y: lift(0.02), z: Math.sin(angle) * radius, radius, arm: ring };
+		const ring = index % RING_RADII.length;
+		const radius = RING_RADII[ring];
+		const angle = (index / Math.max(1, Math.ceil(count / RING_RADII.length))) * TAU + jitter * 0.06;
+		return { x: Math.cos(angle) * radius, y: lift(0.02), z: Math.sin(angle) * radius, radius, arm: ring, angle };
 	}
 
 	if (layout === "lattice") {
-		// A crystal: integer grid, then a breath of jitter so edges are not ruled lines.
-		const side = Math.max(1, Math.ceil(Math.cbrt(Math.max(1, count))));
-		const gx = index % side;
-		const gy = Math.floor(index / side) % side;
-		const gz = Math.floor(index / (side * side)) % side;
-		const span = 0.9;
-		const unit = (value) => (side === 1 ? 0 : (value / (side - 1)) * 2 * span - span);
-		return {
-			x: unit(gx) + jitter * 0.015,
-			y: unit(gy) * 0.7 + jitterY * 0.015,
-			z: unit(gz) + jitter * 0.015,
-			radius: Math.hypot(unit(gx), unit(gz)),
-			arm: index % 2
-		};
+		// A crystal: grid points nearest the middle first, then a breath of jitter.
+		const { grid, half } = latticeSlot(index, count);
+		const cell = LATTICE_SPAN / half;
+		const x = grid[0] * cell;
+		const y = grid[1] * cell * LATTICE_LIFT;
+		const z = grid[2] * cell;
+		return { x: x + jitter * 0.015, y: y + jitterY * 0.015, z: z + jitter * 0.015, radius: Math.hypot(x, z), arm: index % 2, grid, half, cell };
 	}
 
 	if (layout === "bubble") {
@@ -257,41 +313,34 @@ function placeFolder(layout, index, count, salt, folderId, shape) {
 		const phi = Math.acos(Math.max(-1, Math.min(1, 1 - 2 * lift01)));
 		const theta = index * Math.PI * (3 - Math.sqrt(5));
 		const radius = 0.92 + jitter * 0.05;
-		return {
-			x: Math.sin(phi) * Math.cos(theta) * radius,
-			y: Math.cos(phi) * radius * 0.86,
-			z: Math.sin(phi) * Math.sin(theta) * radius,
-			radius,
-			arm: index % arms
-		};
+		const direction = { x: Math.sin(phi) * Math.cos(theta), y: Math.cos(phi), z: Math.sin(phi) * Math.sin(theta) };
+		return { x: direction.x * radius, y: direction.y * radius * 0.86, z: direction.z * radius, radius, arm: index % arms, direction };
 	}
+
 	if (layout === "helix") {
 		// Two strands climbing a cylinder.
 		const strand = index % 2;
-		const t = count <= 1 ? 0 : index / (count - 1);
-		const angle = t * TAU * 1.6 + strand * Math.PI + jitter * 0.05;
-		const radius = 0.52;
-		return {
-			x: Math.cos(angle) * radius,
-			y: (t - 0.5) * 1.5 * Math.max(0.6, thickness),
-			z: Math.sin(angle) * radius,
-			radius,
-			arm: strand
-		};
+		const t = count <= 1 ? 0.5 : index / (count - 1);
+		const angle = t * TAU * HELIX_TURNS + strand * Math.PI + jitter * 0.05;
+		const height = HELIX_HEIGHT * Math.max(0.6, Math.min(1.5, thickness));
+		return { x: Math.cos(angle) * HELIX_RADIUS, y: (t - 0.5) * height, z: Math.sin(angle) * HELIX_RADIUS, radius: HELIX_RADIUS, arm: strand, t, strand, height };
 	}
 
 	if (layout === "clusters") {
-		// A handful of dense blobs — galaxies in a small group.
-		const blobs = 5;
-		const blob = index % blobs;
-		const centreAngle = (blob / blobs) * TAU + jitter * 0.2;
-		const centreRadius = 0.68;
-		const spreadLocal = 0.15;
+		// A handful of loose blobs — galaxies in a small group, stacked at two heights.
+		const blob = index % CLUSTER_BLOBS;
+		const centreAngle = (blob / CLUSTER_BLOBS) * TAU;
+		const centre = {
+			x: Math.cos(centreAngle) * CLUSTER_RADIUS,
+			y: (blob % 2 === 0 ? CLUSTER_LIFT : -CLUSTER_LIFT) * thickness,
+			z: Math.sin(centreAngle) * CLUSTER_RADIUS
+		};
+		const offset = 0.16;
 		return {
-			x: Math.cos(centreAngle) * centreRadius + jitter * spreadLocal,
-			y: lift(0.16) + (blob % 2 === 0 ? 0.08 : -0.08),
-			z: Math.sin(centreAngle) * centreRadius + jitterY * spreadLocal,
-			radius: centreRadius,
+			x: centre.x + jitter * offset,
+			y: centre.y + lift(0.1),
+			z: centre.z + jitterY * offset,
+			radius: CLUSTER_RADIUS,
 			arm: blob
 		};
 	}
@@ -309,29 +358,135 @@ function placeFolder(layout, index, count, salt, folderId, shape) {
 	}
 
 	if (layout === "tree") {
-		// Radiating branches: a trunk of six spokes, each carrying its own length.
+		// Radiating branches: a trunk of spokes, each carrying its own length.
 		const branches = Math.max(3, Math.min(7, arms * 3));
 		const branch = index % branches;
 		const depth = Math.floor(index / branches);
 		const depthCount = Math.max(1, Math.ceil(count / branches));
 		const radius = 0.3 + (0.72 * (depth + 1)) / depthCount;
-		const angle = (branch / branches) * TAU + jitter * 0.22;
-		const bend = jitter * 0.16;
+		const angle = (branch / branches) * TAU + jitter * 0.22 + jitter * 0.16;
 		return {
-			x: Math.cos(angle + bend) * radius,
+			x: Math.cos(angle) * radius,
 			y: lift(0.03) + (1 - radius) * 0.05,
-			z: Math.sin(angle + bend) * radius,
+			z: Math.sin(angle) * radius,
 			radius,
-			arm: branch
+			arm: branch,
+			angle
 		};
 	}
 
-	// Spiral: the original flattened disc.
-	const radius = 0.18 + 0.8 * Math.pow(share, 0.78);
+	// Spiral: suns sit in the middle of their own stretch of an arm.
 	const arm = index % arms;
-	const armTwist = twist + (arm % 2 === 1 ? 0.42 : 0);
-	const angle = (arm / arms) * TAU + radius * armTwist + jitter * 0.16;
-	return { x: Math.cos(angle) * radius, y: lift(0.022), z: Math.sin(angle) * radius, radius, arm };
+	const stretch = segment ?? spiralSegments(new Array(count).fill(1), arms)[index];
+	const radius = spiralRadius((stretch.t0 + stretch.t1) / 2);
+	const angle = spiralAngle(arm, arms, radius, twist) + jitter * 0.04;
+	return { x: Math.cos(angle) * radius, y: lift(0.04), z: Math.sin(angle) * radius, radius, arm, t0: stretch.t0, t1: stretch.t1 };
+}
+
+/** Sum of two uniforms, centred: a soft-edged spread in [-1, 1]. */
+function tri(a, b) {
+	return a + b - 1;
+}
+
+/**
+ * One conversation around its workspace sun, following the silhouette: along the arm,
+ * the ring, the strand or the branch; across the bubble surface; along the lattice
+ * beams; inside a loose ball for clusters; within the sheet for the plate.
+ *
+ * @param layout - one of {@link LAYOUTS}.
+ * @param hub - the sun's {@link placeFolder} result (before re-centring).
+ * @param members - sessions of that sun.
+ * @param u - seven independent uniforms for this star.
+ * @param shape - resolved shape numbers.
+ * @returns position before re-centring.
+ */
+function placeSession(layout, hub, members, u, shape) {
+	const { arms, twist, thickness, spread } = shape;
+	const reach = Math.sqrt(Math.max(1, members));
+	const loose = Math.min(spread, 1.8);
+
+	if (layout === "rings") {
+		const length = (0.08 + 0.06 * reach) * loose;
+		const angle = hub.angle + ((u[0] - 0.5) * 2 * length) / hub.radius;
+		const radius = hub.radius + tri(u[1], u[2]) * (0.03 + 0.004 * reach) * loose;
+		return { x: Math.cos(angle) * radius, y: hub.y + tri(u[3], u[4]) * 0.03 * thickness, z: Math.sin(angle) * radius };
+	}
+
+	if (layout === "lattice") {
+		// Members run out along the grid beams toward the neighbouring points (never
+		// past the outer face), so the stars draw the crystal's edges.
+		const axis = Math.floor(u[0] * 3) % 3;
+		const coordinate = hub.grid[axis];
+		let sign = u[1] < 0.5 ? -1 : 1;
+		if (Math.abs(coordinate + sign) > hub.half) sign = -sign;
+		const run = hub.cell * (0.1 + 0.36 * Math.pow(u[2], 0.8)) * Math.min(1.2, loose) * sign;
+		const point = { x: hub.x, y: hub.y, z: hub.z };
+		if (axis === 0) point.x += run;
+		else if (axis === 1) point.y += run * LATTICE_LIFT;
+		else point.z += run;
+		const fuzz = 0.012 * loose;
+		return { x: point.x + (u[3] - 0.5) * fuzz, y: point.y + (u[4] - 0.5) * fuzz, z: point.z + (u[5] - 0.5) * fuzz };
+	}
+
+	if (layout === "bubble") {
+		const n = hub.direction;
+		const tangent = normalize(Math.abs(n.y) > 0.95 ? { x: 1, y: 0, z: 0 } : cross(n, { x: 0, y: 1, z: 0 }));
+		const bitangent = cross(n, tangent);
+		const tilt = (0.08 + 0.04 * reach) * loose * Math.sqrt(u[0]);
+		const turn = u[1] * TAU;
+		const sinTilt = Math.sin(tilt);
+		const radius = hub.radius + (u[2] - 0.5) * 0.04;
+		const dx = n.x * Math.cos(tilt) + (tangent.x * Math.cos(turn) + bitangent.x * Math.sin(turn)) * sinTilt;
+		const dy = n.y * Math.cos(tilt) + (tangent.y * Math.cos(turn) + bitangent.y * Math.sin(turn)) * sinTilt;
+		const dz = n.z * Math.cos(tilt) + (tangent.z * Math.cos(turn) + bitangent.z * Math.sin(turn)) * sinTilt;
+		return { x: dx * radius, y: dy * radius * 0.86, z: dz * radius };
+	}
+
+	if (layout === "helix") {
+		const t = Math.max(0, Math.min(1, hub.t + (u[0] - 0.5) * 2 * (0.02 + 0.008 * reach) * loose));
+		const angle = t * TAU * HELIX_TURNS + hub.strand * Math.PI;
+		const radius = HELIX_RADIUS + tri(u[1], u[2]) * 0.04 * loose;
+		return { x: Math.cos(angle) * radius, y: (t - 0.5) * hub.height + tri(u[3], u[4]) * 0.02, z: Math.sin(angle) * radius };
+	}
+
+	if (layout === "clusters") {
+		const radius = (0.05 + 0.024 * reach) * loose * Math.cbrt(u[0]);
+		const [dx, dy, dz] = onSphere(u[1], u[2], radius);
+		return { x: hub.x + dx, y: hub.y + dy * 0.8 * Math.min(1.5, thickness), z: hub.z + dz };
+	}
+
+	if (layout === "plate") {
+		const length = (0.06 + 0.028 * reach) * loose;
+		return { x: hub.x + tri(u[0], u[1]) * length, y: hub.y + (u[2] - 0.5) * 0.02 * thickness, z: hub.z + tri(u[3], u[4]) * length };
+	}
+
+	if (layout === "tree") {
+		const radius = Math.max(0.12, hub.radius + (u[0] - 0.5) * 2 * (0.05 + 0.028 * reach) * loose);
+		const side = tri(u[1], u[2]) * (0.03 + 0.006 * reach) * loose;
+		const sinA = Math.sin(hub.angle);
+		const cosA = Math.cos(hub.angle);
+		return {
+			x: cosA * radius + sinA * side,
+			y: tri(u[3], u[4]) * 0.025 * thickness + (1 - radius) * 0.05,
+			z: sinA * radius - cosA * side
+		};
+	}
+
+	// Spiral: anywhere along the sun's stretch, a little past both ends, with the
+	// arm widening outward and one star in ten straying into the gaps between arms.
+	const span = hub.t1 - hub.t0;
+	const pad = Math.min(0.04, span * 0.15);
+	const along = spiralRadius(hub.t0 - pad + (span + 2 * pad) * u[0]);
+	const stray = u[6] < 0.1 ? 2 : 1;
+	const width = (0.05 + 0.1 * along) * spread * stray;
+	// Capped just past the arm's end: one far straggler would set the extent and so shrink the whole disc inside the shell.
+	const radius = Math.max(0.12, Math.min(SPIRAL_OUTER * 1.06, along + tri(u[1], u[2]) * width));
+	const angle = spiralAngle(hub.arm, arms, along, twist) + (u[3] - 0.5) * 0.16;
+	return {
+		x: Math.cos(angle) * radius,
+		y: tri(u[4], u[5]) * (0.07 + 0.06 * along) * thickness,
+		z: Math.sin(angle) * radius
+	};
 }
 
 /**
@@ -362,8 +517,8 @@ function placeDust(layout, index, salt, shape) {
 	const thin = (scale) => (rnd() - 0.5) * scale * thickness;
 
 	if (layout === "lattice") {
-		const span = 0.9;
-		return { x: (rnd() * 2 - 1) * span, y: (rnd() * 2 - 1) * span * 0.7, z: (rnd() * 2 - 1) * span };
+		const span = LATTICE_SPAN;
+		return { x: (rnd() * 2 - 1) * span, y: (rnd() * 2 - 1) * span * LATTICE_LIFT, z: (rnd() * 2 - 1) * span };
 	}
 	if (layout === "bubble") {
 		const lift = rnd() * 2 - 1;
@@ -375,25 +530,25 @@ function placeDust(layout, index, salt, shape) {
 	if (layout === "helix") {
 		const strand = rnd() > 0.5 ? 1 : 0;
 		const t = rnd();
-		const angle = t * TAU * 1.6 + strand * Math.PI;
-		const radius = 0.52 + (rnd() - 0.5) * 0.06;
-		return { x: Math.cos(angle) * radius, y: (t - 0.5) * 1.5 * Math.max(0.6, thickness), z: Math.sin(angle) * radius };
+		const angle = t * TAU * HELIX_TURNS + strand * Math.PI;
+		const radius = HELIX_RADIUS + (rnd() - 0.5) * 0.06;
+		return { x: Math.cos(angle) * radius, y: (t - 0.5) * HELIX_HEIGHT * Math.max(0.6, Math.min(1.5, thickness)), z: Math.sin(angle) * radius };
 	}
 	if (layout === "rings") {
-		const ring = Math.floor(rnd() * 4);
-		const radius = 0.26 + ring * 0.24 + (rnd() - 0.5) * 0.05;
+		const ring = Math.floor(rnd() * RING_RADII.length);
+		const radius = RING_RADII[ring] + (rnd() - 0.5) * 0.05;
 		const angle = rnd() * TAU;
-		return { x: Math.cos(angle) * radius, y: thin(0.02), z: Math.sin(angle) * radius };
+		return { x: Math.cos(angle) * radius, y: thin(0.03), z: Math.sin(angle) * radius };
 	}
 	if (layout === "clusters") {
-		const blob = Math.floor(rnd() * 5);
-		const centreAngle = (blob / 5) * TAU;
-		const jitterX = (rnd() - 0.5) * 0.26;
-		const jitterZ = (rnd() - 0.5) * 0.26;
+		const blob = Math.floor(rnd() * CLUSTER_BLOBS);
+		const centreAngle = (blob / CLUSTER_BLOBS) * TAU;
+		const jitterX = (rnd() - 0.5) * 0.36;
+		const jitterZ = (rnd() - 0.5) * 0.36;
 		return {
-			x: Math.cos(centreAngle) * 0.68 + jitterX,
-			y: (rnd() - 0.5) * 0.3 + (blob % 2 === 0 ? 0.06 : -0.06),
-			z: Math.sin(centreAngle) * 0.68 + jitterZ
+			x: Math.cos(centreAngle) * CLUSTER_RADIUS + jitterX,
+			y: (rnd() - 0.5) * 0.3 + (blob % 2 === 0 ? CLUSTER_LIFT : -CLUSTER_LIFT) * thickness,
+			z: Math.sin(centreAngle) * CLUSTER_RADIUS + jitterZ
 		};
 	}
 	if (layout === "plate") {
@@ -413,7 +568,7 @@ function placeDust(layout, index, salt, shape) {
 	}
 	const radius = Math.pow(rnd(), 0.55) * 1.02;
 	const angle = rnd() * TAU;
-	return { x: Math.cos(angle) * radius, y: thin(0.02 + radius * 0.03), z: Math.sin(angle) * radius };
+	return { x: Math.cos(angle) * radius, y: thin(0.04 + radius * 0.06), z: Math.sin(angle) * radius };
 }
 
 /**
@@ -421,9 +576,20 @@ function placeDust(layout, index, salt, shape) {
  * strands, a box, a sheet, spokes, or nothing for the spiral (its arms already read).
  *
  * @param layout - one of {@link LAYOUTS}.
+ * @param offset - the galaxy's re-centring shift and scale (`galaxy.offset`), so the guides sit on the body.
  * @returns array of polylines in world space.
  */
-function layoutGuides(layout) {
+function layoutGuides(layout, offset) {
+	const lines = layoutGuideLines(layout);
+	const ox = offset?.x ?? 0;
+	const oy = offset?.y ?? 0;
+	const oz = offset?.z ?? 0;
+	const scale = offset?.scale ?? 1;
+	if (ox === 0 && oy === 0 && oz === 0 && scale === 1) return lines;
+	return lines.map((line) => line.map(([x, y, z]) => [(x - ox) * scale, (y - oy) * scale, (z - oz) * scale]));
+}
+
+function layoutGuideLines(layout) {
 	const ring = (radius, segments = 96) => {
 		const points = [];
 		for (let i = 0; i <= segments; i += 1) {
@@ -433,7 +599,7 @@ function layoutGuides(layout) {
 		return points;
 	};
 
-	if (layout === "rings") return [ring(0.26), ring(0.5), ring(0.74), ring(0.98)];
+	if (layout === "rings") return RING_RADII.map((radius) => ring(radius));
 	if (layout === "plate") {
 		const lines = [];
 		for (let i = -3; i <= 3; i += 1) {
@@ -446,10 +612,10 @@ function layoutGuides(layout) {
 	if (layout === "lattice") {
 		// A box wireframe reads as random beams from most angles, so the grid itself
 		// is the structure: one short cross per lattice point.
-		const span = 0.9;
+		const span = LATTICE_SPAN;
 		const marks = [];
 		for (const x of [-span, 0, span]) {
-			for (const y of [-span * 0.7, 0, span * 0.7]) {
+			for (const y of [-span * LATTICE_LIFT, 0, span * LATTICE_LIFT]) {
 				for (const z of [-span, 0, span]) {
 					if (x === 0 && y === 0 && z === 0) continue;
 					marks.push([[x - 0.035, y, z], [x + 0.035, y, z]]);
@@ -480,8 +646,8 @@ function layoutGuides(layout) {
 			const points = [];
 			for (let i = 0; i <= 120; i += 1) {
 				const t = i / 120;
-				const angle = t * TAU * 1.6 + strand * Math.PI;
-				points.push([Math.cos(angle) * 0.52, (t - 0.5) * 1.5, Math.sin(angle) * 0.52]);
+				const angle = t * TAU * HELIX_TURNS + strand * Math.PI;
+				points.push([Math.cos(angle) * HELIX_RADIUS, (t - 0.5) * HELIX_HEIGHT, Math.sin(angle) * HELIX_RADIUS]);
 			}
 			strands.push(points);
 		}
@@ -497,12 +663,13 @@ function layoutGuides(layout) {
 	}
 	if (layout === "clusters") {
 		const lines = [];
-		for (let blob = 0; blob < 5; blob += 1) {
-			const centreAngle = (blob / 5) * TAU;
+		for (let blob = 0; blob < CLUSTER_BLOBS; blob += 1) {
+			const centreAngle = (blob / CLUSTER_BLOBS) * TAU;
+			const height = blob % 2 === 0 ? CLUSTER_LIFT : -CLUSTER_LIFT;
 			const points = [];
 			for (let i = 0; i <= 48; i += 1) {
 				const angle = (i / 48) * TAU;
-				points.push([Math.cos(centreAngle) * 0.68 + Math.cos(angle) * 0.14, Math.sin(angle) * 0.1, Math.sin(centreAngle) * 0.68 + Math.sin(angle) * 0.14]);
+				points.push([Math.cos(centreAngle) * CLUSTER_RADIUS + Math.cos(angle) * 0.2, height + Math.sin(angle) * 0.12, Math.sin(centreAngle) * CLUSTER_RADIUS + Math.sin(angle) * 0.2]);
 			}
 			lines.push(points);
 		}
@@ -516,16 +683,19 @@ function dustSize(haze, index) {
 	return haze ? 0.4 + hash01(`dust:${index}:s`) * 0.7 : 0.5 + hash01(`dust:${index}:s`) * 1.2;
 }
 
+/** No layout reaches past this radius, whatever the shape sliders say. */
+const GALAXY_REACH = 1.5;
+
 /**
- * Place every member on a flattened spiral disc, in units where the outermost
- * star sits at radius ≈ 1 and the disc is thin in Y.
+ * Lay out every member for the chosen silhouette, in units where the outermost sun
+ * sits near radius 1. Stars fill the inner ~0.7 of the shell (shell = 1.22·extent).
  *
  * Pure function of ids and counts: the same data always yields the same galaxy,
  * so the picture is stable across reloads and no solver has to run.
  *
  * @param graph - output of {@link buildGraph}.
  * @param seed - bump to re-roll jitter (the "re-layout" button).
- * @returns `{ nodes, links, dust, extent }`.
+ * @returns `{ nodes, links, dust, extent, offset }`.
  */
 function createGalaxy(graph, seed, shape) {
 	const salt = typeof seed === "number" ? seed : 1;
@@ -537,11 +707,13 @@ function createGalaxy(graph, seed, shape) {
 	const shapeNumbers = { arms, twist, thickness, spread };
 	const nodes = graph.nodes;
 	const folders = nodes.filter((node) => node.kind === "folder");
-	const byId = new Map(nodes.map((node) => [node.id, node]));
 	const golden = Math.PI * (3 - Math.sqrt(5));
+	const segments = layout === "spiral" ? spiralSegments(folders.map((folder) => folder.count), arms) : [];
+	const placements = new Map();
 
 	folders.forEach((folder, index) => {
-		const placed = placeFolder(layout, index, folders.length, salt, folder.id, shapeNumbers);
+		const placed = placeFolder(layout, index, folders.length, salt, folder.id, shapeNumbers, segments[index]);
+		placements.set(folder.id, { ...placed, members: folder.count });
 		folder.x = placed.x;
 		folder.y = placed.y;
 		folder.z = placed.z;
@@ -550,10 +722,31 @@ function createGalaxy(graph, seed, shape) {
 		folder.size = 2.5 + Math.min(2.6, Math.sqrt(folder.count) * 0.26);
 	});
 
-	// Off-disc shapes are not mass-symmetric (six branches, five blobs, a 3x3x3 grid
-	// with empty cells), so the body would hang off the middle of the shell and get
-	// re-centred here. The spiral is centred on its nucleus by construction and must
-	// keep it: shifting a two-arm disc to its own midpoint halves it.
+	for (const node of nodes) {
+		if (node.kind !== "session") continue;
+		const hub = placements.get(node.folderId);
+		const u = hashStreams(`star|${node.id}|${salt}`, 7);
+		node.size = 0.85 + node.recency * 0.6 + (node.running ? 0.28 : 0);
+		if (hub === undefined) {
+			const angle = u[0] * TAU;
+			const radius = 0.35 + u[1] * 0.5;
+			node.x = Math.cos(angle) * radius;
+			node.z = Math.sin(angle) * radius;
+			node.y = (u[2] - 0.5) * 0.08 * thickness;
+			node.size = 1.05 + node.recency * 0.55;
+			continue;
+		}
+		const placed = placeSession(layout, hub, hub.members, u, shapeNumbers);
+		node.x = placed.x;
+		node.y = placed.y;
+		node.z = placed.z;
+		node.arm = hub.arm;
+	}
+
+	// Off-disc shapes are not mass-symmetric (six branches, five blobs, a partly
+	// filled grid), so the body would hang off the middle of the shell and gets
+	// re-centred on its suns here. The spiral is centred on its core by construction
+	// and must keep it: shifting a two-arm disc to its own midpoint halves it.
 	let offsetX = 0;
 	let offsetY = 0;
 	let offsetZ = 0;
@@ -566,48 +759,24 @@ function createGalaxy(graph, seed, shape) {
 		offsetX /= folders.length;
 		offsetY /= folders.length;
 		offsetZ /= folders.length;
-		for (const folder of folders) {
-			folder.x -= offsetX;
-			folder.y -= offsetY;
-			folder.z -= offsetZ;
+		for (const node of nodes) {
+			node.x -= offsetX;
+			node.y -= offsetY;
+			node.z -= offsetZ;
 		}
 	}
 
-	for (const node of nodes) {
-		if (node.kind !== "session") continue;
-		const hub = byId.get(node.folderId);
-		if (hub === undefined) {
-			const angle = hash01(`${node.id}:${salt}`) * TAU;
-			const radius = 0.12 + hash01(`${node.id}:r${salt}`) * 0.2;
-			node.x = Math.cos(angle) * radius;
-			node.z = Math.sin(angle) * radius;
-			node.y = (hash01(`${node.id}:y${salt}`) - 0.5) * 0.04 * thickness;
-			node.size = 1.05 + node.recency * 0.55;
-			continue;
+	// Wide spread or tall thickness can push stragglers far out; pull the whole body
+	// (dust and guides too) back inside the reach the shell can still frame.
+	let reach = 0;
+	for (const node of nodes) reach = Math.max(reach, Math.hypot(node.x, node.y, node.z));
+	const shrink = reach > GALAXY_REACH ? GALAXY_REACH / reach : 1;
+	if (shrink !== 1) {
+		for (const node of nodes) {
+			node.x *= shrink;
+			node.y *= shrink;
+			node.z *= shrink;
 		}
-		const cluster = (0.03 + Math.min(0.13, Math.sqrt(hub.count) * 0.024)) * spread;
-		if (layout !== "spiral") {
-			// Off the disc there is no arm to trail along: cluster around the hub.
-			node.x = hub.x + (hash01(`${node.id}:a${salt}`) * 2 - 1) * cluster * 1.5;
-			node.z = hub.z + (hash01(`${node.id}:d${salt}`) * 2 - 1) * cluster * 1.5;
-			node.y = hub.y + (hash01(`${node.id}:y${salt}`) - 0.5) * (0.02 + cluster * 2.4);
-			node.size = 0.85 + node.recency * 0.6 + (node.running ? 0.28 : 0);
-			node.arm = hub.arm;
-			continue;
-		}
-		const along = (hash01(`${node.id}:a${salt}`) * 2 - 1) * cluster * 2.1;
-		const across = (hash01(`${node.id}:d${salt}`) * 2 - 1) * cluster * 0.6;
-		// Log-spiral tangent at the hub, so members trail along the arm instead of balling up.
-		const theta = Math.atan2(hub.z, hub.x);
-		const tangentLength = Math.hypot(Math.cos(theta) - twist * Math.sin(theta), Math.sin(theta) + twist * Math.cos(theta)) || 1;
-		const tangentX = (Math.cos(theta) - twist * Math.sin(theta)) / tangentLength;
-		const tangentZ = (Math.sin(theta) + twist * Math.cos(theta)) / tangentLength;
-		const hubRadius = Math.hypot(hub.x, hub.z) || 1;
-		node.x = hub.x + tangentX * along + (hub.x / hubRadius) * across;
-		node.z = hub.z + tangentZ * along + (hub.z / hubRadius) * across;
-		node.y = (hash01(`${node.id}:y${salt}`) - 0.5) * (0.012 + cluster * 0.8) * thickness;
-		node.size = 0.85 + node.recency * 0.6 + (node.running ? 0.28 : 0);
-		node.arm = hub.arm;
 	}
 
 	// Dust: the diffuse body of whatever shape is on screen. Rendered as sub-pixel
@@ -621,9 +790,9 @@ function createGalaxy(graph, seed, shape) {
 			const placed = placeDust(layout, index, salt, shapeNumbers);
 			const haze = hash01(`dust:${index}:haze`) > 0.72;
 			dust.push({
-				x: placed.x - offsetX,
-				y: placed.y - offsetY,
-				z: placed.z - offsetZ,
+				x: (placed.x - offsetX) * shrink,
+				y: (placed.y - offsetY) * shrink,
+				z: (placed.z - offsetZ) * shrink,
 				hue: HUES[index % HUES.length],
 				alpha: haze ? 0.028 + hash01(`dust:${index}:a`) * 0.05 : 0.05 + hash01(`dust:${index}:a`) * 0.1,
 				size: dustSize(haze, index)
@@ -637,12 +806,11 @@ function createGalaxy(graph, seed, shape) {
 		const radius = 0.06 + 1 * share;
 		// Wobble the lane slightly so the arm has texture instead of a razor line.
 		const lane = (hash01(`dust:${index}:lane`) - 0.5) * (haze ? 0.5 : 0.09);
-		const armTwist = twist + (arm % 2 === 1 ? 0.42 : 0);
-		const angle = (arm / arms) * TAU + radius * armTwist + lane;
+		const angle = spiralAngle(arm, arms, radius, twist) + lane;
 		dust.push({
-			x: Math.cos(angle) * radius,
-			z: Math.sin(angle) * radius,
-			y: (hash01(`dust:${index}:y`) - 0.5) * (0.014 + radius * 0.03) * thickness,
+			x: Math.cos(angle) * radius * shrink,
+			z: Math.sin(angle) * radius * shrink,
+			y: (hash01(`dust:${index}:y`) - 0.5) * (0.03 + radius * 0.07) * thickness * shrink,
 			hue: HUES[(arm * 3 + (haze ? 1 : 0)) % HUES.length],
 			alpha: haze ? 0.03 + hash01(`dust:${index}:a`) * 0.05 : 0.06 + hash01(`dust:${index}:a`) * 0.14,
 			size: dustSize(haze, index)
@@ -654,9 +822,9 @@ function createGalaxy(graph, seed, shape) {
 		const radius = Math.pow(hash01(`field:${index}:r`), 0.5) * 1.02;
 		const angle = hash01(`field:${index}:a`) * TAU;
 		dust.push({
-			x: Math.cos(angle) * radius,
-			z: Math.sin(angle) * radius,
-			y: (hash01(`field:${index}:y`) - 0.5) * (0.016 + radius * 0.03) * thickness,
+			x: Math.cos(angle) * radius * shrink,
+			z: Math.sin(angle) * radius * shrink,
+			y: (hash01(`field:${index}:y`) - 0.5) * (0.04 + radius * 0.08) * thickness * shrink,
 			hue: 252 + (hash01(`field:${index}:h`) - 0.5) * 70,
 			alpha: 0.018 + hash01(`field:${index}:a2`) * 0.05,
 			size: 0.5 + hash01(`field:${index}:s`) * 1
@@ -665,7 +833,7 @@ function createGalaxy(graph, seed, shape) {
 
 	// A faint scatter where the spiral arms converge, at half the old alpha: a bright
 	// nucleus reads as a white blob sitting on top of the view. Spiral only: the other
-	// layouts are re-centred on their folders, so grains fixed at the origin would
+	// layouts are re-centred on their stars, so grains fixed at the origin would
 	// pile up in the middle of a shape that has nothing there.
 	for (let index = 0; layout === "spiral" && index < 110; index += 1) {
 		const angle = hash01(`core:${index}:a`) * TAU;
@@ -680,13 +848,10 @@ function createGalaxy(graph, seed, shape) {
 		});
 	}
 
+	// The shell is drawn at 1.22·extent, so every star stays inside it with margin.
 	let extent = 0.2;
-	for (const node of nodes) {
-		// Tall layouts (lattice, bubble, helix) need the vertical axis in the framing
-		// too, or the camera fits the disc and clips the shape.
-		extent = Math.max(extent, Math.hypot(node.x, node.z), Math.abs(node.y) * 1.7);
-	}
-	return { nodes, links: graph.links, dust, extent: Math.min(1.25, extent), golden };
+	for (const node of nodes) extent = Math.max(extent, Math.hypot(node.x, node.y, node.z));
+	return { nodes, links: graph.links, dust, extent: Math.min(1.7, extent), golden, offset: { x: offsetX, y: offsetY, z: offsetZ, scale: shrink } };
 }
 
 /**
@@ -939,6 +1104,12 @@ export {	ARMS,
 	projectPoint,
 	LAYOUTS,
 	placeFolder,
+	placeSession,
+	spiralSegments,
+	spiralRadius,
+	SPIRAL_INNER,
+	SPIRAL_OUTER,
+	GALAXY_REACH,
 	placeDust,
 	layoutGuides,
 	fitDistance,
