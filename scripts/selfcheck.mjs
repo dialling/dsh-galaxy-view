@@ -458,7 +458,25 @@ assert.ok(bundle.includes("SKY_RADIUS") && bundle.includes("sparkSprite"), "shel
 assert.ok(bundle.includes("layoutGuides") && bundle.includes("placeDust"), "layouts ship their own placement and guides");
 assert.ok(bundle.includes("shellSize") && bundle.includes("shellGlow"), "shell size and brightness are settings");
 assert.ok(!bundle.includes("children: {"), "no illegal children declaration on the main slot");
-assert.ok(bundle.includes("dgv-inside-glow") || true, "interior skin present");
+assert.ok(bundle.includes("dgv-inside-glow"), "interior skin present");
+/* Enter flow: every folder trigger warps, the clock survives stalls, the overlay waits
+ * for the target, and the interior takes the palette hue the warp was given. */
+{
+	const warpBody = bundle.slice(bundle.indexOf("function playWarp("), bundle.indexOf("\n}\n", bundle.indexOf("function playWarp(")));
+	assert.ok(/Math\.min\(34, /.test(warpBody), "the warp clock clamps each frame's step");
+	assert.ok(warpBody.includes(".then(onArrive)") && /if \(!ready && clock >= holdAt\)/.test(warpBody), "the warp holds until the target has settled");
+	assert.ok(!warpBody.includes("createRadialGradient") && !warpBody.includes('"lighter"'), "the warp paints no glow ball");
+	assert.ok(bundle.includes("const enterWorkspace = (node) => warpInto(") && !/onOpenWorkspace\?\.\(star|onOpenWorkspace\?\.\(cardNode|onOpenWorkspace\?\.\(node\.workspaceId\);/.test(bundle), "every workspace trigger goes through the warp");
+	assert.ok(/const openWorkspace = \(workspaceId, look\)[\s\S]{0,240}paintSafely\(look\)/.test(bundle), "opening a workspace paints the interior");
+	assert.ok(bundle.includes("if (warpState.opaque) {"), "the galaxy loop pauses under an opaque warp");
+}
+/* Links bow as in the reference linkCurves.ts, and the batched pass must add every curve to its path. */
+{
+	const bowBody = bundle.slice(bundle.indexOf("function bowControl("), bundle.indexOf("\n}\n", bundle.indexOf("function bowControl(")));
+	assert.ok(bowBody.includes("0.32) * 0.35 * Math.hypot(") && bowBody.includes('"lineage" ? 0.18'), "link bow is 0.32 x 0.35 x edge length, lineage 0.18 x 0.35");
+	assert.ok(/mr > 1e-3 \? \[mx \/ mr, my \/ mr, mz \/ mr\]/.test(bowBody), "bow direction is the full 3D midpoint direction with a fallback");
+	assert.ok(/const control = bowControl\([^)]*\);\n\t+context\.moveTo\(a\._p\.x, a\._p\.y\);\n\t+context\.quadraticCurveTo\(control\.x, control\.y, b\._p\.x, b\._p\.y\);\n\t+drawn \+= 1;/.test(bundle), "the batched link pass adds each curve to its path");
+}
 /* The guides draw before the filaments, so the filament palette must be bound first:
  * a const read before its declaration throws in the temporal dead zone every frame
  * and silently kills links, stars and captions. Checked inside renderScene itself,

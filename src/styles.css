@@ -906,8 +906,9 @@
 	z-index: 2147482000;
 	pointer-events: none;
 	background:
-		radial-gradient(120% 84% at 50% 50%, transparent 46%, hsla(var(--dgv-inside-hue), 70%, 58%, 0.12) 100%),
-		radial-gradient(60% 46% at 50% 8%, hsla(var(--dgv-inside-hue), 80%, 66%, 0.08), transparent 70%);
+		radial-gradient(120% 84% at 50% 50%, transparent 52%, hsla(var(--dgv-inside-hue), 62%, 56%, 0.2) 100%),
+		radial-gradient(60% 40% at 50% 0%, hsla(var(--dgv-inside-hue), 64%, 62%, 0.1), transparent 70%);
+	box-shadow: inset 0 0 70px hsla(var(--dgv-inside-hue), 62%, 56%, 0.26);
 	mix-blend-mode: screen;
 }
 

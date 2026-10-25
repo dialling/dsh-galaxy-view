@@ -1,229 +1,211 @@
 /**
  * The "enter the star" transition.
  *
- * Opening a conversation from the galaxy should feel like flying into it: a shell
- * of white points around the camera stretches into accelerating lines, the flight
- * turns the colour of the star, and it lands inside a hollow sphere of that colour
- * while the conversation comes up underneath.
- *
  * The overlay lives on `document.body`, not inside the plugin's slot, because the
- * harness swaps the main panel as the conversation opens — the transition has to
- * survive that swap long enough to dissolve over the chat.
+ * main panel is swapped underneath it while the target opens. Phases run on a
+ * clock that advances by at most 34 ms per frame, so a main-thread stall delays
+ * them instead of skipping them, and the overlay only fades once the caller's
+ * `onArrive` promise has settled and two more frames have painted.
  */
 
-const WARP_BASE = "#1c1c1c";
+/** `opaque` pauses the galaxy loop; `stop` is the running transition, if any. */
+const warpState = { opaque: false, stop: null };
 
-/** Clamp helper kept local so the bundle has no cross-module constant clashes. */
 function warpClamp(value, low, high) {
 	return value < low ? low : value > high ? high : value;
 }
 
-/** Ease-out so the flight spends its speed early and settles softly. */
-function warpEase(value) {
-	const t = warpClamp(value, 0, 1);
-	return 1 - (1 - t) * (1 - t);
+function warpCubic(value) {
+	const t = 1 - warpClamp(value, 0, 1);
+	return 1 - t * t * t;
 }
 
 /**
  * Play the transition once.
  *
- * @param {{ hue: number, base?: string, onArrive?: () => void, sped?: number }} options
- *   `hue` is the star's hue in degrees; `base` is the theme's plane colour;
- *   `onArrive` runs at the moment the camera is inside the sphere (so the chat is
- *   already mounted when the shell fades).
+ * @param {{ hue: number, base?: string, x?: number, y?: number, reverse?: boolean, onArrive?: () => unknown }} options
+ *   `hue` is the star's palette hue; `base` the theme's plane colour; `x`/`y` the
+ *   star's page position the flight starts from; `reverse` plays the short way back
+ *   out. `onArrive` runs once, when the overlay is opaque; the overlay stays until
+ *   the promise it returns settles.
  */
 function playWarp(options) {
-	const base = typeof options.base === "string" ? options.base : WARP_BASE;
+	const onArrive = typeof options.onArrive === "function" ? options.onArrive : () => undefined;
 	if (typeof document === "undefined") {
-		options.onArrive?.();
+		onArrive();
 		return null;
 	}
-
+	warpState.stop?.();
+	const base = typeof options.base === "string" ? options.base : "#1c1c1c";
+	const hue = Number.isFinite(options.hue) ? options.hue : 200;
+	const reverse = options.reverse === true;
 	const still = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-	const scale = still ? 0.45 : 1;
-	const travelEnd = 640 * scale;
-	const shellStart = 470 * scale;
-	const arriveAt = 900 * scale;
-	const fadeStart = 980 * scale;
-	const fadeEnd = 1520 * scale;
+	// [opaque by, arrive, hold until ready, fade start, fade length] in clock ms.
+	const [opaqueAt, arriveAt, holdAt, fadeAt, fadeMs] = still ? [200, 200, 200, 200, 380] : reverse ? [220, 220, 220, 520, 450] : [280, 300, 720, 1720, 650];
+	const flies = !still && !reverse;
 
 	const host = document.createElement("div");
 	host.dataset.dgvWarp = "";
-	host.style.cssText = [
-		"position:fixed",
-		"inset:0",
-		"z-index:2147483000",
-		"pointer-events:none",
-		`background:${base}`
-	].join(";");
-
+	host.style.cssText = `position:fixed;inset:0;z-index:2147483600;pointer-events:none;opacity:0;background:${base}`;
 	const canvas = document.createElement("canvas");
 	canvas.style.cssText = "display:block;width:100%;height:100%";
 	host.appendChild(canvas);
 	document.body.appendChild(host);
-
+	const context = canvas.getContext("2d");
 	const ratio = Math.min(window.devicePixelRatio || 1, 2);
-	let width = window.innerWidth;
-	let height = window.innerHeight;
-	const sizeCanvas = () => {
+	let width = 1;
+	let height = 1;
+	const size = () => {
 		width = window.innerWidth;
 		height = window.innerHeight;
 		canvas.width = Math.round(width * ratio);
 		canvas.height = Math.round(height * ratio);
 	};
-	sizeCanvas();
+	size();
+	const originX = Number.isFinite(options.x) ? options.x : width / 2;
+	const originY = Number.isFinite(options.y) ? options.y : height / 2;
 
-	const context = canvas.getContext("2d");
-	const rainbow = warpClamp(options.hue, 0, 360);
-
-	// ── phase 1: a shell of points around the camera, then a flight ──────────
-	const flight = [];
-	const flightCount = Math.round(1100 * (still ? 0.4 : 1));
-	for (let index = 0; index < flightCount; index += 1) {
+	// Flight: a tunnel of fine points that stretch into 1 px streaks as they pass.
+	const FLIGHT = still ? 0 : 420;
+	const fx = new Float32Array(FLIGHT);
+	const fy = new Float32Array(FLIGHT);
+	const fz = new Float32Array(FLIGHT);
+	const fpx = new Float32Array(FLIGHT);
+	const fpy = new Float32Array(FLIGHT);
+	const spawn = (index, depth) => {
 		const angle = Math.random() * Math.PI * 2;
-		const radius = 0.08 + Math.random() * 0.92;
-		flight.push({
-			x: Math.cos(angle) * radius,
-			y: Math.sin(angle) * radius,
-			z: 0.15 + Math.random() * 0.85,
-			px: 0,
-			py: 0
-		});
-	}
+		const radius = 0.12 + Math.random() * 0.88;
+		fx[index] = Math.cos(angle) * radius;
+		fy[index] = Math.sin(angle) * radius;
+		fz[index] = depth;
+		fpx[index] = NaN;
+	};
+	for (let index = 0; index < FLIGHT; index += 1) spawn(index, 0.15 + Math.random() * 0.85);
 
-	// ── phase 3: the hollow sphere the flight lands inside ───────────────────
-	const shell = [];
-	const shellCount = Math.round(1500 * (still ? 0.5 : 1));
+	// Landing: a golden-spiral shell of hard squares (1.2 / 2 / 3 CSS px).
+	const SHELL = still ? 0 : 1700;
+	const sx = new Float32Array(SHELL);
+	const sy = new Float32Array(SHELL);
+	const sz = new Float32Array(SHELL);
+	const ss = new Float32Array(SHELL);
 	const golden = Math.PI * (3 - Math.sqrt(5));
-	for (let index = 0; index < shellCount; index += 1) {
-		const y = 1 - (index / Math.max(1, shellCount - 1)) * 2;
+	for (let index = 0; index < SHELL; index += 1) {
+		const y = 1 - (index / (SHELL - 1)) * 2;
 		const ring = Math.sqrt(Math.max(0, 1 - y * y));
-		shell.push({ x: Math.cos(golden * index) * ring, y, z: Math.sin(golden * index) * ring, seed: Math.random() });
+		sx[index] = Math.cos(golden * index) * ring;
+		sy[index] = y;
+		sz[index] = Math.sin(golden * index) * ring;
+		const pick = (index * 0.618034) % 1;
+		ss[index] = pick < 0.7 ? 1.2 : pick < 0.92 ? 2 : 3;
 	}
+	const flightColour = (tint) => `hsl(${hue}, ${Math.round(18 + 34 * tint)}%, ${Math.round(86 - 10 * tint)}%)`;
+	const shellColour = `hsl(${hue}, 60%, 72%)`;
 
-	const started = performance.now();
-	let arrived = false;
+	let clock = 0;
+	let waited = 0;
+	let last = performance.now();
 	let frame = 0;
-	let last = started;
+	let arrived = false;
+	let ready = false;
 
 	const finish = () => {
 		cancelAnimationFrame(frame);
-		window.removeEventListener("resize", sizeCanvas);
-		if (!arrived) {
-			arrived = true;
-			options.onArrive?.();
-		}
+		window.removeEventListener("resize", size);
 		host.remove();
+		warpState.opaque = false;
+		if (warpState.stop === finish) warpState.stop = null;
 	};
 
 	const paint = (now) => {
-		const elapsed = now - started;
-		const dt = Math.min(0.05, (now - last) / 1000);
+		const step = Math.min(34, Math.max(0, now - last));
 		last = now;
+		if (!ready && clock >= holdAt) waited += step;
+		else clock += step;
+		if (waited > 6000) ready = true;
 
-		context.setTransform(ratio, 0, 0, ratio, 0, 0);
-		context.globalCompositeOperation = "source-over";
+		if (!arrived && clock >= arriveAt) {
+			arrived = true;
+			Promise.resolve()
+				.then(onArrive)
+				.catch((error) => console.warn("graph-view: warp target failed", error))
+				.then(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+				.then(() => {
+					ready = true;
+				});
+		}
+
+		const opacity = clock < fadeAt ? warpCubic(clock / opaqueAt) : 1 - warpClamp((clock - fadeAt) / fadeMs, 0, 1);
+		host.style.opacity = opacity.toFixed(3);
+		warpState.opaque = opacity >= 0.95;
+		if (clock >= fadeAt + fadeMs) {
+			finish();
+			return;
+		}
+
+		context.setTransform(1, 0, 0, 1, 0, 0);
+		context.globalAlpha = 1;
 		context.fillStyle = base;
-		context.fillRect(0, 0, width, height);
+		context.fillRect(0, 0, canvas.width, canvas.height);
+		const lead = warpCubic(clock / 520);
+		const cx = (originX + (width / 2 - originX) * lead) * ratio;
+		const cy = (originY + (height / 2 - originY) * lead) * ratio;
 
-		const cx = width / 2;
-		const cy = height / 2;
-		const focal = Math.min(width, height) * 0.62;
-
-		// Flight: points rush past, each one drawing its own light trail.
-		if (elapsed < travelEnd + 260) {
-			const progress = warpEase(elapsed / travelEnd);
-			const rush = 0.22 + 5.2 * progress * progress;
-			const fade = 1 - warpClamp((elapsed - travelEnd) / 220, 0, 1);
-			context.globalCompositeOperation = "lighter";
-			for (const star of flight) {
-				star.z -= dt * rush;
-				if (star.z <= 0.03) {
-					const angle = Math.random() * Math.PI * 2;
-					const radius = 0.1 + Math.random() * 0.9;
-					star.x = Math.cos(angle) * radius;
-					star.y = Math.sin(angle) * radius;
-					star.z = 1;
-					star.px = 0;
-					star.py = 0;
-				}
-				const sx = cx + (star.x / star.z) * focal * 0.5;
-				const sy = cy + (star.y / star.z) * focal * 0.5;
-				const close = warpClamp(1.15 - star.z, 0, 1);
-				const alpha = warpClamp(close * 0.9 + 0.05, 0, 0.92) * fade;
-				if (star.px !== 0 || star.py !== 0) {
-					context.strokeStyle = `rgba(255,255,255,${alpha * 0.75})`;
-					context.lineWidth = 0.5 + close * 1.9;
+		const flightLeft = flies ? 1 - warpClamp((clock - holdAt) / 260, 0, 1) : 0;
+		if (flightLeft > 0) {
+			const rush = 0.3 + 4.4 * Math.min(1, clock / 700) ** 2;
+			const focal = Math.min(width, height) * 0.36 * ratio;
+			const tint = warpClamp(clock / holdAt, 0, 1);
+			context.strokeStyle = context.fillStyle = flightColour(tint);
+			context.lineWidth = ratio;
+			for (let index = 0; index < FLIGHT; index += 1) {
+				fz[index] -= (step / 1000) * rush;
+				if (fz[index] <= 0.04) spawn(index, 1);
+				const px = cx + (fx[index] / fz[index]) * focal;
+				const py = cy + (fy[index] / fz[index]) * focal;
+				const close = warpClamp(1.1 - fz[index], 0, 1);
+				context.globalAlpha = (0.12 + close * 0.7) * flightLeft * Math.min(1, clock / 160);
+				if (fpx[index] === fpx[index]) {
+					const trail = Math.min(1, (26 * ratio) / (Math.hypot(px - fpx[index], py - fpy[index]) + 0.01));
 					context.beginPath();
-					context.moveTo(star.px, star.py);
-					context.lineTo(sx, sy);
+					context.moveTo(px + (fpx[index] - px) * trail, py + (fpy[index] - py) * trail);
+					context.lineTo(px, py);
 					context.stroke();
 				}
-				context.fillStyle = `rgba(255,255,255,${alpha})`;
-				context.beginPath();
-				context.arc(sx, sy, 0.6 + close * 1.7, 0, Math.PI * 2);
-				context.fill();
-				star.px = sx;
-				star.py = sy;
+				const side = Math.max(1, Math.round((1 + close) * ratio));
+				context.fillRect(Math.round(px - side / 2), Math.round(py - side / 2), side, side);
+				fpx[index] = px;
+				fpy[index] = py;
 			}
 		}
 
-		// Landing: the flight settles into a hollow sphere in the star's colour.
-		if (elapsed > shellStart) {
-			const reveal = warpClamp((elapsed - shellStart) / (arriveAt - shellStart), 0, 1);
-			const spin = (elapsed - shellStart) * 0.00035;
+		// Reveal wave from the centre outward (delay 0.55·rank, window 0.45), the halo
+		// pulsing from 1.8 down to 1.
+		const reveal = reverse ? 1 - warpClamp(clock / 520, 0, 1) : warpClamp((clock - holdAt) / 950, 0, 1);
+		if (SHELL > 0 && reveal > 0) {
+			const glow = reverse ? 1 : 1.8 - 0.8 * warpClamp((clock - holdAt) / 1300, 0, 1);
+			const radius = Math.min(width, height) * 0.44 * ratio;
+			const spin = clock * 0.00022;
 			const cos = Math.cos(spin);
 			const sin = Math.sin(spin);
-			const radius = Math.min(width, height) * 0.46;
-			context.globalCompositeOperation = "lighter";
-			for (const dot of shell) {
-				const x = dot.x * cos - dot.z * sin;
-				const z = dot.x * sin + dot.z * cos;
-				const depth = warpClamp((z + 1) / 2, 0, 1);
-				const pop = warpClamp(reveal * 1.35 - dot.seed * 0.35, 0, 1);
-				if (pop <= 0.01) continue;
-				const sx = cx + x * radius;
-				const sy = cy + dot.y * radius;
-				const alpha = pop * (0.1 + depth * 0.5);
-				context.fillStyle = `hsla(${rainbow}, 92%, ${62 + depth * 16}%, ${alpha})`;
-				context.beginPath();
-				context.arc(sx, sy, 0.9 + depth * 1.5, 0, Math.PI * 2);
-				context.fill();
-			}
-			// A soft core of the same hue, so the middle never reads as a hole.
-			const core = context.createRadialGradient(cx, cy, 0, cx, cy, radius * 0.72);
-			core.addColorStop(0, `hsla(${rainbow}, 92%, 68%, ${0.1 * reveal})`);
-			core.addColorStop(0.55, `hsla(${rainbow}, 92%, 60%, ${0.045 * reveal})`);
-			core.addColorStop(1, "rgba(28,28,28,0)");
-			context.fillStyle = core;
-			context.fillRect(0, 0, width, height);
-		}
-
-		if (!arrived && elapsed >= arriveAt) {
-			arrived = true;
-			options.onArrive?.();
-		}
-
-		if (elapsed >= fadeStart) {
-			const out = warpClamp(1 - (elapsed - fadeStart) / (fadeEnd - fadeStart), 0, 1);
-			host.style.opacity = String(out);
-			if (out <= 0.001) {
-				finish();
-				return;
+			context.fillStyle = shellColour;
+			for (let index = 0; index < SHELL; index += 1) {
+				const x = sx[index] * cos - sz[index] * sin;
+				const z = sx[index] * sin + sz[index] * cos;
+				const y = sy[index] * 0.94 + z * 0.34;
+				const depth = (z * 0.94 - sy[index] * 0.34 + 1) / 2;
+				const local = warpClamp((reveal - 0.55 * Math.min(1, Math.hypot(x, y))) / 0.45, 0, 1);
+				if (local <= 0) continue;
+				const grow = warpCubic(local);
+				context.globalAlpha = Math.min(0.95, (0.32 + 0.5 * depth) * glow * Math.min(1, local * 2));
+				const side = Math.max(1, Math.round(ss[index] * ratio));
+				context.fillRect(Math.round(cx + x * radius * grow - side / 2), Math.round(cy + y * radius * grow - side / 2), side, side);
 			}
 		}
-
 		frame = requestAnimationFrame(paint);
 	};
 
-	window.addEventListener("resize", sizeCanvas);
+	window.addEventListener("resize", size);
+	warpState.stop = finish;
 	frame = requestAnimationFrame(paint);
-
-	return () => {
-		if (!arrived) {
-			arrived = true;
-			options.onArrive?.();
-		}
-		finish();
-	};
+	return finish;
 }

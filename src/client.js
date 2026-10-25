@@ -1,16 +1,8 @@
 /**
- * Browser half of the graph-view plugin — a cinematic 3D galaxy with a control panel.
- *
- * Visual direction follows Obsidian's Galaxy View: workspaces are luminous suns on
- * spiral arms, conversations are stars, filaments join a fork to its parent, and a
- * perspective camera orbits a slowly turning starfield.
- *
- * Nothing else in the harness changes: the galaxy is one `main` panel plus one header
- * button, and the stock conversation view is one click away.
- *
- * Plain, dependency-free bundle source: `require` is the client module loader's shim,
- * every element is built with `react.createElement`, and the module is wrapped into
- * `window.__ModuleLoader__.load({...})` by `scripts/build.mjs`.
+ * Browser half of the graph-view plugin: a cinematic 3D galaxy (workspaces as suns on
+ * spiral arms, conversations as stars, look after Obsidian's Galaxy View) as one
+ * `main` panel plus a header button. Dependency-free; `scripts/build.mjs` wraps this
+ * into `__ModuleLoader__.load`.
  */
 const react = require("react");
 const { useCallback, useEffect, useMemo, useRef, useState } = react;
@@ -366,11 +358,7 @@ function dustSprite(hue) {
 	return canvas;
 }
 
-/**
- * Bake the deep-space backdrop once per size, palette and veil strength. Themes with
- * world-space haze (`theme.haze`) get none: no screen-space veil spots, no vignette.
- * @returns offscreen canvas, or null when the plane is drawn flat.
- */
+/** Deep-space backdrop, baked once per size/palette/veil; null when the theme uses world-space haze. */
 function bakeNebula(width, height, dpr, themeName, veil) {
 	const theme = themeOf(themeName);
 	if (theme.haze) return null;
@@ -412,11 +400,7 @@ function bakeNebula(width, height, dpr, themeName, veil) {
 	return canvas;
 }
 
-/**
- * Sky shell: hard, pixel-snapped squares on a thin world shell (geometry in
- * `createSkyShell`). One cached Gaussian halo sprite per tint serves the handful of
- * bright L-class grains and the single twinkling star; nothing else gets a sprite.
- */
+/** Sky shell: hard pixel-snapped squares (geometry in `createSkyShell`); one cached halo sprite per tint for the few bright grains and the twinkler. */
 const SKY = createSkyShell();
 const FIELD = createFieldStars();
 const SKY_HALO_SIGMA = 3;
@@ -466,6 +450,20 @@ function skyStyles(glow) {
 	return styles;
 }
 
+/** Control point as in the reference `render/linkCurves.ts`: the world midpoint pushed along its direction from the origin by bow·edge (0.32×0.35, lineage 0.18×0.35), with a horizontal-perpendicular fallback near the origin; projected afterwards. */
+function bowControl(a, b, link, viewport, basis, scale) {
+	const mx = (a.x + b.x) * 0.5 * scale;
+	const my = (a.y + b.y) * 0.5 * scale;
+	const mz = (a.z + b.z) * 0.5 * scale;
+	const ex = (b.x - a.x) * scale;
+	const ez = (b.z - a.z) * scale;
+	const bow = (link.kind === "lineage" ? 0.18 : 0.32) * 0.35 * Math.hypot(ex, (b.y - a.y) * scale, ez);
+	const mr = Math.hypot(mx, my, mz);
+	const pl = Math.hypot(ex, ez);
+	const [dx, dy, dz] = mr > 1e-3 ? [mx / mr, my / mr, mz / mr] : pl > 1e-6 ? [ez / pl, 0, -ex / pl] : [1, 0, 0];
+	const point = projectPoint({ x: mx + dx * bow, y: my + dy * bow, z: mz + dz * bow }, basis, viewport);
+	return point === null ? { x: (a._p.x + b._p.x) * 0.5, y: (a._p.y + b._p.y) * 0.5 } : point;
+}
 /** Case-insensitive star match used by the search box and the name filter. */
 function matches(node, query) {
 	return (
@@ -694,6 +692,10 @@ function GraphScene(props) {
 			const canvas = canvasRef.current;
 			if (canvas === null || canvas === undefined) return;
 			if (typeof document !== "undefined" && document.hidden) return;
+			if (warpState.opaque) {
+				last = 0;
+				return;
+			}
 			const delta = last === 0 ? 16 : Math.min(64, now - last);
 			last = now;
 			state.frameCost = state.frameCost * 0.9 + delta * 0.1;
@@ -767,28 +769,32 @@ function GraphScene(props) {
 		return best;
 	};
 
-	/**
-	 * Fly into a conversation: the galaxy hands over to the warp overlay, which
-	 * reports back once the camera is inside the star's sphere so the chat is
-	 * already mounted while the sphere dissolves.
-	 */
-	const enterSession = (node) => {
-		if (node === undefined) return;
+	/** Dive toward the star, then the warp overlay opens the target and holds until it has mounted. One palette hue feeds star, warp and interior. */
+	const warpInto = (node, open) => {
+		if (node === undefined || warpState.stop !== null) return;
 		const theme = themeOf(settings.theme);
-		const index = Number.isFinite(node.hueIndex) ? node.hueIndex : 0;
+		const look = { hue: nodeHue(settings, node), label: node.label };
+		const entry = state.projected.find((item) => item.node.id === node.id);
+		const rect = canvasRef.current?.getBoundingClientRect();
+		trackNodeById(node.id);
+		if (state.focusTween !== null) {
+			state.focusTween.duration = 520;
+			state.focusTween.toDistance *= 0.5;
+			state.targetDistance = state.focusTween.toDistance;
+		}
 		playWarp({
-			hue: theme.hues[index % theme.hues.length],
+			hue: look.hue,
 			base: theme.base,
-			onArrive: () => onEnterSession?.(node)
+			x: entry !== undefined && rect !== undefined ? rect.left + entry.x : undefined,
+			y: entry !== undefined && rect !== undefined ? rect.top + entry.y : undefined,
+			onArrive: () => open(look)
 		});
 	};
+	const enterSession = (node) => warpInto(node, (look) => onEnterSession?.(node, look));
+	const enterWorkspace = (node) => warpInto(node, (look) => onOpenWorkspace?.(node.workspaceId, look));
+	const enterNode = (node) => (node.kind === "folder" ? enterWorkspace : enterSession)(node);
 
-	/**
-	 * Track one body: the camera glides onto it and keeps it centred while the
-	 * galaxy turns. Workspaces (suns) frame wider than conversations, because a sun
-	 * carries its whole star cluster around it.
-	 * @param nodeId - node to hold.
-	 */
+	/** Track one body: glide the camera onto it; suns frame wider because they carry a cluster. */
 	/** Where the camera should end up for one body: a dive, not a nudge. */
 	const diveDistance = (node) => {
 		const fit = state.fit ?? 3.4;
@@ -948,9 +954,7 @@ function GraphScene(props) {
 
 	const onDoubleClick = (event) => {
 		const star = pickStar(event, event.currentTarget);
-		if (star === null) return;
-		if (star.node.kind === "folder") onOpenWorkspace?.(star.node.workspaceId);
-		else enterSession(star.node);
+		if (star !== null) enterNode(star.node);
 	};
 
 	/** Wheel dolly; non-passive so the page does not scroll. */
@@ -1040,9 +1044,7 @@ function GraphScene(props) {
 		}
 		if (event.key === "Enter" && card !== null) {
 			const node = nodes.find((item) => item.id === card.id);
-			if (node === undefined) return;
-			if (node.kind === "folder") onOpenWorkspace?.(node.workspaceId);
-			else enterSession(node);
+			if (node !== undefined) enterNode(node);
 		}
 	};
 
@@ -1130,10 +1132,7 @@ function GraphScene(props) {
 						{
 							type: "button",
 							className: "dgv-btn dgv-btn-primary",
-							onClick: () => {
-								if (cardNode.kind === "folder") onOpenWorkspace?.(cardNode.workspaceId);
-								else enterSession(cardNode);
-							}
+							onClick: () => enterNode(cardNode)
 						},
 						t(cardNode.kind === "folder" ? "card.enter" : "card.open")
 					),
@@ -1300,13 +1299,9 @@ function nodeHue(settings, node) {
 }
 
 /** Resting link alpha per class: member, lineage, dimmed (focus ×0.25). */
-const LINK_ALPHA = [0.36, 0.46, 0.09];
+const LINK_ALPHA = [0.32, 0.46, 0.09];
 
-/**
- * Per-link colours for the current galaxy and palette, bucketed so the link pass
- * strokes one path per colour: `order` holds link indices sorted by bucket and
- * `start`/`end` the bucket ranges. Rebuilt only when the galaxy or theme changes.
- */
+/** Per-link colours bucketed (`order`/`start`/`end`) so the link pass strokes one path per colour; rebuilt with the galaxy or theme. */
 function linkLookFor(state, settings) {
 	const cached = state.linkLook;
 	if (cached !== undefined && cached.galaxy === state.galaxy && cached.theme === settings.theme) return cached;
@@ -1614,7 +1609,7 @@ function renderScene(canvas, state) {
 		const folder = node.kind === "folder";
 		const radius = Math.max(1.4, node.size * point.scale * (folder ? 0.022 : 0.017));
 		const rest = folder ? clamp(radius * 0.3, 2.4, 4.6) : clamp(radius * 0.85, 2, 5);
-		const hue = folder ? nodeHue(settings, node) : nodeHue(settings, node) + (hash01(`${node.id}:hue`) * 20 - 10);
+		const hue = folder ? nodeHue(settings, node) : nodeHue(settings, node) + (hash01(`${node.id}:hue`) * 12 - 6);
 		projected.push({ node, x: point.x, y: point.y, depth: point.depth, radius, dot: node.id === hot ? rest * 1.3 : rest, hue: hueBucket(hue) });
 	}
 	projected.sort((left, right) => right.depth - left.depth);
@@ -1657,8 +1652,6 @@ function renderScene(canvas, state) {
 	const galaxyNodes = state.galaxy.nodes;
 	const linkFade = Math.min(1, reveal * 1.6) * bodyGain;
 	const linkAlpha = LINK_ALPHA;
-	const bowX = width / 2;
-	const bowY = height / 2;
 	context.globalCompositeOperation = "source-over";
 	context.lineWidth = 1 / dprNow;
 	for (let bucket = 0; bucket < linkLook.styles.length; bucket += 1) {
@@ -1674,11 +1667,9 @@ function renderScene(canvas, state) {
 				if (hot !== null && (a.id === hot || b.id === hot)) continue;
 				const kind = a._dim || b._dim ? 2 : link.kind === "lineage" ? 1 : 0;
 				if (kind !== pass) continue;
-				const midX = (a._p.x + b._p.x) / 2;
-				const midY = (a._p.y + b._p.y) / 2;
-				const bow = link.kind === "lineage" ? 0.16 : 0.07;
+				const control = bowControl(a, b, link, viewport, basis, scale);
 				context.moveTo(a._p.x, a._p.y);
-				context.quadraticCurveTo(midX + (midX - bowX) * bow, midY + (midY - bowY) * bow, b._p.x, b._p.y);
+				context.quadraticCurveTo(control.x, control.y, b._p.x, b._p.y);
 				drawn += 1;
 			}
 			if (drawn === 0) continue;
@@ -1696,13 +1687,11 @@ function renderScene(canvas, state) {
 			const b = galaxyNodes[link.b];
 			if (a === undefined || b === undefined || a._p == null || b._p == null) continue;
 			if (a.id !== hot && b.id !== hot) continue;
-			const midX = (a._p.x + b._p.x) / 2;
-			const midY = (a._p.y + b._p.y) / 2;
-			const bow = link.kind === "lineage" ? 0.16 : 0.07;
+			const control = bowControl(a, b, link, viewport, basis, scale);
 			context.strokeStyle = linkLook.touched[linkLook.bucketOf[index]];
 			context.beginPath();
 			context.moveTo(a._p.x, a._p.y);
-			context.quadraticCurveTo(midX + (midX - bowX) * bow, midY + (midY - bowY) * bow, b._p.x, b._p.y);
+			context.quadraticCurveTo(control.x, control.y, b._p.x, b._p.y);
 			context.stroke();
 		}
 	}
@@ -1821,11 +1810,7 @@ function PresetCard({ id, label, sub, active, palette, onClick }) {
 	);
 }
 
-/**
- * The left control panel modelled on Galaxy View's: presets, filters, colour,
- * backdrop, bloom, shape, navigation, advanced, and a live stats line.
- * @param props - settings plus setters and scene controls.
- */
+/** The left control panel: presets, filters, colour, shape, navigation, stats. */
 function ControlPanel(props) {
 	const { t, settings, update, applyPreset, revertPreset, themes, presets, myPresets, saveMyPreset, applyMyPreset, dropMyPreset, workspaces, stats, controls, onClose, qualityLabel } = props;
 	const [open, setOpen] = useState({ look: true, filter: true, color: false, backdrop: false, bloom: false, shape: false, motion: false, advanced: false });
@@ -2091,10 +2076,7 @@ function ControlPanel(props) {
  * Page
  * ------------------------------------------------------------------ */
 
-/**
- * The starfield page registered as the `graph` main panel.
- * @param props - slot props: `t`, injected stores and navigation callbacks.
- */
+/** The starfield page registered as the `graph` main panel. */
 function GraphPage(props) {
 	const t = props.t;
 	const useGraphSessions = props.useGraphSessions ?? null;
@@ -2121,15 +2103,13 @@ function GraphPage(props) {
 
 	/** Step into a star: the conversation becomes the surface, the galaxy is paused behind it. */
 	const enterStar = useCallback(
-		(node) => {
-			if (node === undefined) return;
-			props.selectSession?.(node.id, node);
-		},
+		(node, look) => (node === undefined ? undefined : props.selectSession?.(node.id, node, look)),
 		[props.selectSession]
 	);
 
 	/** Give the galaxy the whole window: hide the stock sidebar, put it back on exit. */
 	useEffect(() => {
+		props.clearInterior?.();
 		const guard = props.collapseSidebar === undefined ? null : props.collapseSidebar();
 		return () => {
 			if (guard !== null && guard !== undefined) guard.release();
@@ -2397,10 +2377,7 @@ function GraphToggle({ t, openPanel }) {
 /** Services this plugin reads. */
 const inject = ["slots", "locale", "sessions", "workspaces", "uiWorkspace", "layout"];
 
-/**
- * Client entry: dictionaries, the `graph` main panel, and the header toggle.
- * @param ctx - client root context.
- */
+/** Client entry: dictionaries, the graph main panel and the header toggle. */
 function apply(ctx) {
 	if (typeof window !== "undefined") window.__dgvApplied = "start";
 	try {
@@ -2464,6 +2441,7 @@ function run(ctx) {
 		clearInterior();
 		if (typeof document === "undefined") return;
 		const safeHue = Number.isFinite(hue) ? hue : 248;
+		const base = themeOf(loadSettings().theme).base;
 		const root = document.createElement("div");
 		root.className = "dgv-inside";
 		root.dataset.dgvInside = "1";
@@ -2476,32 +2454,55 @@ function run(ctx) {
 		back.textContent = t("chat.back");
 		back.title = `${label ?? ""} · ${t("chat.back")}`;
 		back.addEventListener("click", () => {
-			clearInterior();
-			ctx.layout.selectPanel(PANEL_ID);
+			if (warpState.stop !== null) return;
+			playWarp({
+				hue: safeHue,
+				base,
+				reverse: true,
+				onArrive: () => {
+					clearInterior();
+					ctx.layout.selectPanel(PANEL_ID);
+					return settle(() => document.querySelector(".dgv-canvas") !== null);
+				}
+			});
 		});
 		root.append(glow, back);
 		document.body.append(root);
 		document.body.dataset.dgvInside = "1";
-		document.body.style.setProperty("--dgv-inside-base", themeOf(loadSettings().theme).base);
+		document.body.style.setProperty("--dgv-inside-base", base);
 		interior = { root };
 	};
 
-	/** Enter one star: paint its interior, then open the Session in the panel. */
-	const enterStar = (sessionId, node) => {
+	/** Resolve once `done()` holds (checked every frame), or after 3 s. */
+	const settle = (done) =>
+		new Promise((resolve) => {
+			const until = performance.now() + 3000;
+			const step = () => (done() || performance.now() > until ? resolve() : requestAnimationFrame(step));
+			step();
+		});
+	const galaxyGone = () => document.querySelector(".dgv-canvas") === null;
+	const paintSafely = (look) => {
 		try {
-			paintInterior(node?.hue, node?.label);
+			if (look !== undefined) paintInterior(look.hue, look.label);
 		} catch (error) {
 			console.warn("graph-view: painting the star interior failed", error);
 		}
-		openSession(sessionId);
 	};
-	const selectSession = enterStar;
-	const openWorkspace = (workspaceId) => {
+	/** Enter one star: paint its interior, open the Session, resolve once it replaced the galaxy. */
+	const selectSession = (sessionId, node, look) => {
+		paintSafely(look);
+		openSession(sessionId);
+		return settle(galaxyGone);
+	};
+	const openWorkspace = (workspaceId, look) =>
 		Promise.resolve(ctx.get("uiWorkspace").openWorkspace(workspaceId)).then(
-			() => ctx.layout.selectPanel(null),
+			() => {
+				ctx.layout.selectPanel(null);
+				paintSafely(look);
+				return settle(galaxyGone);
+			},
 			(reason) => console.warn("graph-view: open workspace failed", reason)
 		);
-	};
 
 	ctx.slots.inject("main", () =>
 		ctx.slots.register(
