@@ -1,4 +1,4 @@
-# dsh-graph-view · Starfield / galaxy view
+# dsh-graph-view · Galaxy view
 
 Every workspace and conversation in DeepSeek Harness, drawn as a **three-dimensional
 galaxy** inside a hollow shell of hard white dots: workspaces are suns on spiral
@@ -146,7 +146,7 @@ flight.
 
 ![Warp transition](docs/warp.png)
 
-Opening the starfield collapses the harness sidebar so the galaxy gets the whole
+Opening the galaxy view collapses the harness sidebar so it gets the whole
 window; leaving it puts the sidebar back at the width it had. If you re-open the
 sidebar while in the galaxy, it is left alone on exit.
 

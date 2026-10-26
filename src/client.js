@@ -21,10 +21,10 @@ const EMPTY_WORKSPACES = { phase: "loading", items: [], archivedSessionIds: [] }
  * ------------------------------------------------------------------ */
 
 const zh = {
-	"panel": "星空图谱",
-	"toggle": "星空",
-	"toggle.title": "切换到星空视图",
-	"title": "星空视图",
+	"panel": "银河视图",
+	"toggle": "银河",
+	"toggle.title": "切换到银河视图",
+	"title": "银河视图",
 	"subtitle": "工作区与对话的三维星系",
 	"search.placeholder": "搜索星体，回车飞过去…",
 	"action.relayout": "重排",
@@ -263,10 +263,10 @@ const zh = {
 };
 
 const en = {
-	"panel": "Starfield",
-	"toggle": "Stars",
-	"toggle.title": "Switch to the starfield view",
-	"title": "Starfield",
+	"panel": "Galaxy view",
+	"toggle": "Galaxy",
+	"toggle.title": "Switch to the galaxy view",
+	"title": "Galaxy view",
 	"subtitle": "Workspaces and conversations as a galaxy",
 	"search.placeholder": "Search stars, Enter to fly there…",
 	"action.relayout": "Re-roll",
