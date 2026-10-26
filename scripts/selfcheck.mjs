@@ -1342,6 +1342,11 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		assert.ok(fade(12) * 12 < 1.7 && fade(12) > 0.1, `twelve bodies in one cell sum to ${(fade(12) * 12).toFixed(2)}× a lone halo`);
 	}
 	assert.ok(bundle.includes("const CAPTION_WIDTHS = new Map();"), "caption widths are cached, not measured per frame");
+// 指令列表按工作区名标注，而不是统一的「工作区」。
+assert.ok(bundle.includes("function docScopeLabel(node, t) {") && bundle.includes('basename(String(node.workspace ?? node.root ?? ""))'), "workspace-scoped docs are labelled with their workspace name");
+assert.ok(bundle.includes("docScopeLabel(node, t)") && bundle.includes("docScopeLabel(selected, t)"), "the list row and the detail card both use it");
+assert.ok(readFileSync(join(root, "src/memory.js"), "utf8").includes('workspace: doc.workspace ?? ""'), "the memory graph keeps the workspace path on each doc node");
+
 	// Turning GPU 星体 off must take the batched layer off the page: leaving its canvas
 	// behind froze the last frame of bodies on top of the Canvas 2D ones.
 	assert.ok(bundle.includes("function dropGlowLayer(state) {") && bundle.includes("layer.canvas.remove?.();"), "the GPU layer is torn down, canvas and all");

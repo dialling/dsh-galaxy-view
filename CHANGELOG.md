@@ -2,6 +2,12 @@
 
 ## 0.3.0 — 2026-10-26
 
+- **记忆库's 指令 list names the workspace instead of the word 工作区.** A project instruction
+  file used to read `工作区 · 1.2 KB` no matter which project it came from. The memory graph now
+  carries `doc.workspace` (the host already sends it), and `docScopeLabel` shows the folder name —
+  `PaperCut · 1.2 KB`, `dsh-graph-view · 1.2 KB` — in both the list row and the detail card.
+  Global / rules / agents scopes keep their localized names; a doc with no workspace path falls
+  back to the old label rather than printing an empty one.
 - **Fix: turning 高级 → GPU 星体 off left a frozen frame over the scene.** The switch returned
   `null` from `glowLayerFor`, so bodies went back to the Canvas 2D sprites — but the `.dgv-glow`
   canvas stayed in the page at `z-index: 3` with its last drawn frame still on it, freezing a

@@ -187,6 +187,8 @@ function buildMemoryGraph(input) {
 			scope: doc.scope ?? "",
 			group: doc.group ?? "",
 			root: doc.root ?? "",
+			// the workspace a project-scoped instruction file belongs to, so the list can name it
+			workspace: doc.workspace ?? "",
 			path: doc.path,
 			size: doc.size ?? 0,
 			mtimeMs: doc.mtimeMs ?? 0,
