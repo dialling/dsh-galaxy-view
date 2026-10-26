@@ -2,6 +2,13 @@
 
 ## 0.3.0 — 2026-10-26
 
+- **Fix: turning 高级 → GPU 星体 off left a frozen frame over the scene.** The switch returned
+  `null` from `glowLayerFor`, so bodies went back to the Canvas 2D sprites — but the `.dgv-glow`
+  canvas stayed in the page at `z-index: 3` with its last drawn frame still on it, freezing a
+  ghost of the GPU bodies over the live ones. `dropGlowLayer(state)` now deletes the GL resources
+  and **removes the canvas**; both the off switch and a lost context call it. Probed against the
+  built bundle: layer created → 2 canvases in the stage, **off → `null` and 1 canvas**, back on →
+  a fresh layer and 2 canvases again.
 - **Docs and interface languages.** `README.md` is now the **Chinese** readme GitHub shows
   first, with `README.en.md` for English and a `中文 · English` banner at the top of both
   (`README.zh.md` is gone; the npm tarball ships both). The galaxy gained a **中 / EN** button in

@@ -1342,6 +1342,11 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		assert.ok(fade(12) * 12 < 1.7 && fade(12) > 0.1, `twelve bodies in one cell sum to ${(fade(12) * 12).toFixed(2)}× a lone halo`);
 	}
 	assert.ok(bundle.includes("const CAPTION_WIDTHS = new Map();"), "caption widths are cached, not measured per frame");
+	// Turning GPU 星体 off must take the batched layer off the page: leaving its canvas
+	// behind froze the last frame of bodies on top of the Canvas 2D ones.
+	assert.ok(bundle.includes("function dropGlowLayer(state) {") && bundle.includes("layer.canvas.remove?.();"), "the GPU layer is torn down, canvas and all");
+	assert.ok(bundle.includes("if (state.settings?.gpuGlow === false || state.glowFailed === true) {") && bundle.includes("dropGlowLayer(state);"), "which the off switch and a lost context both call");
+
 	// 中 / EN in the header, and the two dictionaries must stay in lockstep.
 	assert.ok(bundle.includes('t("lang.switch")') && bundle.includes('update({ language: settings.language === "en" ? "zh" : "en" })'), "the header carries a 中 / EN switch");
 	{
