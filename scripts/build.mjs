@@ -7,8 +7,9 @@
  *
  * and every module body stays inside that factory so CSS and module-scope state
  * are materialized on first import. This script inlines `src/styles.css`,
- * `src/settings.js`, `src/graph-model.js`, `src/stars.js` and `src/warp.js` into `src/client.js` and wraps the result — no bundler, no
- * dependencies, nothing to keep in sync by hand.
+ * `src/settings.js`, `src/graph-model.js`, `src/physics.js`, `src/stars.js`,
+ * `src/gpu.js`, `src/memory.js` and `src/warp.js` into `src/client.js` and wraps the result —
+ * no bundler, no dependencies, nothing to keep in sync by hand.
  *
  * Usage: node scripts/build.mjs
  */
@@ -54,7 +55,10 @@ function stylePrelude(css) {
 
 const look = inlineModel(source("src/settings.js"));
 const model = inlineModel(source("src/graph-model.js"));
+const physics = inlineModel(source("src/physics.js"));
 const stars = inlineModel(source("src/stars.js"));
+const gpu = inlineModel(source("src/gpu.js"));
+const memory = inlineModel(source("src/memory.js"));
 const warp = inlineModel(source("src/warp.js"));
 const client = source("src/client.js").trim();
 const css = source("src/styles.css");
@@ -77,8 +81,17 @@ const bundle = [
 	"		// ── src/graph-model.js ─────────────────────────────────────────",
 	model,
 	"",
+	"		// ── src/physics.js ─────────────────────────────────────────────",
+	physics,
+	"",
 	"		// ── src/stars.js ───────────────────────────────────────────────",
 	stars,
+	"",
+	"		// ── src/gpu.js ────────────────────────────────────────────────",
+	gpu,
+	"",
+	"		// ── src/memory.js ──────────────────────────────────────────────",
+	memory,
 	"",
 	"		// ── src/warp.js ────────────────────────────────────────────────",
 	warp,
@@ -105,4 +118,4 @@ if (syntax.status !== 0) {
 
 const digest = createHash("sha256").update(bundle).digest("hex").slice(0, 16);
 console.log(`lib/client.js  ${bundle.length} bytes  sha256:${digest}`);
-console.log(`  settings ${look.length}  model ${model.length}  stars ${stars.length}  warp ${warp.length}  client ${client.length}  css ${css.length}`);
+console.log(`  settings ${look.length}  model ${model.length}  physics ${physics.length}  stars ${stars.length}  memory ${memory.length}  warp ${warp.length}  client ${client.length}  css ${css.length}`);

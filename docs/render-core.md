@@ -52,15 +52,15 @@ project(p):
 
 | # | 层 | 混合 | 关键参数 |
 | --- | --- | --- | --- |
-| 0 | 底色 | `source-over` | 整幅 `fillRect(theme.base)`：默认 deepfield 主题是 `#000003`，其余主题是 `#1c1c1c` |
+| 0 | 底色 | `source-over` | 整幅 `fillRect(theme.base)`：七套主题一律纯黑 `#000000` |
 | 1 | 星云贴图 | `source-over` | 预烘的整幅位图，存在时直接 `drawImage` |
 | 2 | 球壳光晕 | `lighter` | 只垫在亮星（3.0 级里的 3%）与眨眼星下面：高斯 halo sprite，α `0.12·swell·skyAlpha`（swell 是眨眼包络） |
 | 3 | 球壳方块 | `source-over` | 固定像素尺寸 1.2 / 2 / 3 px（**不做距离衰减**）；α `skyAlpha = (0.5+0.5·min(1,glow))·focusPull`；同色桶合批成一条 path |
 | 4 | 浮星方块 | `source-over` | 与球壳同一套固定像素尺寸（同样不做距离衰减）；α `skyAlpha×0.8`；以 −0.00048 rad/s 反向慢转 |
-| 5 | 霾层 | `lighter` | 星云 billboard + 星团云画进 1/4 分辨率画布再放大合成（仅 deepfield 这类带 `haze` 的主题且开启背景时） |
-| 6 | 尘埃 | `lighter` | 半径 `clamp(size·step·0.016, 0.8, spiral ? 2.4 : 2)`（step = focal/depth），α `grain.alpha·reveal·mist·1.8·min(1, 2.4/depth)` |
+| 5 | 霾层 | `lighter` | 星云 billboard（「星云天幕」滑杆）+ 星团云（「集群云雾」滑杆，移动档关闭）画进 1/4 分辨率画布再放大合成；与「星空背景」开关无关 |
+| 6 | 尘埃 | `lighter` | 由「尘埃带」滑杆控制，默认 0（不画）；半径 `clamp(size·step·0.016, 0.8, spiral ? 2.4 : 2)`（step = focal/depth），尺寸再乘 `0.8 + 1.6·dust`（上限随 dust 放大到 2.5 倍），α `grain.alpha·reveal·dust^0.7·3.2·min(1, 2.4/depth)`；每 7 粒加画一个 `3 + 3·dust` 倍大的柔光，α ×0.12 |
 | 7 | 骨架 | `lighter`（尘埃留下的 `lighter` 仍在生效） | α `0.2·reveal·bright`，线宽 0.7 |
-| 8 | 连线 | `source-over` | **1 设备像素**；三档 α `[0.32, 0.46, 0.09]`（普通/血缘/淡出）；二次贝塞尔控制点见 §5 |
+| 8 | 连线 | `source-over` | **1 设备像素**；三档 α `[0.32, 0.46, 0.09]`（普通/血缘/淡出），整体乘 `链接透明度 / 0.14`；二次贝塞尔控制点见 §5 |
 | 9 | 触及连线 | `source-over` | 悬停/选中星体碰到的边单独提亮：α `0.85·linkFade`，**1 CSS px**，走专用亮色桶 |
 | 10 | 星体光晕 | `lighten`（逐通道 max） | 内晕/外晕两枚缓存 sprite；α 内 `0.32·min(1,(rd/3)²)·gain`、外 `0.022·gain` |
 | 11 | 星体本体 | `source-over` | 缓存圆盘 sprite，尺寸按 0.5 px 量化；当前/选中外加一个**分离的** 1 px 圆环（半径 `dot/2 + 3.5`） |
@@ -84,8 +84,8 @@ project(p):
 ```
 mid = (a + b)/2                            // 世界空间（三维）
 edge = |b - a|                             // 三维边长
-bow = (lineage ? 0.18 : 0.32) × 0.35 × edge
-      // 0.35 = 曲率系数（参考实现的滑杆默认值，本插件写死）→ 默认弓高 ≈ 0.112×边长
+bow = (lineage ? 0.18 : 0.32) × curve × edge
+      // curve = 「连线弯曲」滑杆，默认 0.35（参考实现的默认值）→ 默认弓高 ≈ 0.112×边长；0 时直接 lineTo
       // 血缘边的 0.18 是本插件加的特例，参考实现只有 0.32
 dir = mid / |mid|                          // 完整三维"远离原点"方向
       // 中点几乎在原点（穿核对径边）时退化：取边向量在 XZ 平面的垂线 (ez, 0, −ex)/|(ex,ez)|
@@ -104,12 +104,12 @@ path = moveTo(a) → quadraticCurveTo(control, b)
 | --- | --- | --- |
 | `spiral` | 双旋臂盘面（`spiralRadius(t)` + 臂间相位） | 旋臂 + 弥散盘 + 核 |
 | `rings` | 4 道同心环 | 4 个薄环 |
-| `lattice` | 3×3×3 方阵 | 立方体均匀 |
-| `bubble` | 球面 | 球壳 |
+| `field` | 深空场：无结构散场 | 宽球内均匀（体积均匀） |
+| `system` | 太阳系：一条轨道一行星 | 轨道环 + 行星薄盘卫星 |
 | `helix` | 双链 1.6 圈 | 双链 |
-| `clusters` | 5 团 | 5 个高斯团 |
-| `plate` | 平面方格 | 平板 |
-| `tree` | 6 条辐条 | 辐条 |
+| `web` | 不规则球团（矩阵） | 球团内均匀 |
+| `plate` | 立体方阵：全部星体按 Z 序占 side³ 格点，同一工作区连成一块；不跑力模拟 | 沿格线 |
+| `tree` | 6–14 条立体辐条（黄金螺旋方向） | 辐条 |
 
 非盘面布局要先把**母星质心平移到原点**，否则形体偏在球壳一侧（螺旋不平移，它本来就以核为中心）。
 

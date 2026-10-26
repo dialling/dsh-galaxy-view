@@ -11,6 +11,121 @@
 /** `opaque` pauses the galaxy loop; `stop` is the running transition, if any. */
 const warpState = { opaque: false, stop: null };
 
+/** Landing shell: 1700 golden-spiral hard squares (1.2 / 2 / 3 CSS px), shared by the warp and the star interior. */
+const SHELL_DOTS = 1700;
+let shellGeometry = null;
+function warpShell() {
+	if (shellGeometry !== null) return shellGeometry;
+	const sx = new Float32Array(SHELL_DOTS);
+	const sy = new Float32Array(SHELL_DOTS);
+	const sz = new Float32Array(SHELL_DOTS);
+	const ss = new Float32Array(SHELL_DOTS);
+	const golden = Math.PI * (3 - Math.sqrt(5));
+	for (let index = 0; index < SHELL_DOTS; index += 1) {
+		const y = 1 - (index / (SHELL_DOTS - 1)) * 2;
+		const ring = Math.sqrt(Math.max(0, 1 - y * y));
+		sx[index] = Math.cos(golden * index) * ring;
+		sy[index] = y;
+		sz[index] = Math.sin(golden * index) * ring;
+		const pick = (index * 0.618034) % 1;
+		ss[index] = pick < 0.7 ? 1.2 : pick < 0.92 ? 2 : 3;
+	}
+	shellGeometry = { sx, sy, sz, ss };
+	return shellGeometry;
+}
+
+/**
+ * Spin of the landing shell from the wall clock, so the warp's shell and the star
+ * interior's shell are the same sphere at the same angle when one hands over to the other.
+ */
+function shellSpin(now) {
+	return (now % 2.6e7) * 0.00022;
+}
+
+/**
+ * Paint the shell centred at (cx, cy) in device px. `alphaOf(local, depth)` gives each
+ * dot's alpha from its reveal share (1 = fully out) and depth (0 back, 1 front).
+ * `dot` pins every square to one CSS size instead of the three-tier landing sizes,
+ * for a shell that has to sit still behind a conversation.
+ *
+ * `bend` adds a perspective divide: front dots spread out and back dots close in, so a
+ * shell approached from outside has depth instead of reading as a flat disc of dots.
+ * At 0 the projection is the plain orthographic one a room seen from its centre wants.
+ */
+function paintShell(context, cx, cy, radius, ratio, spin, reveal, alphaOf, dot, bend) {
+	const { sx, sy, sz, ss } = warpShell();
+	const cos = Math.cos(spin);
+	const sin = Math.sin(spin);
+	for (let index = 0; index < SHELL_DOTS; index += 1) {
+		const x = sx[index] * cos - sz[index] * sin;
+		const z = sx[index] * sin + sz[index] * cos;
+		const y = sy[index] * 0.94 + z * 0.34;
+		const depth = (z * 0.94 - sy[index] * 0.34 + 1) / 2;
+		const local = reveal >= 1 ? 1 : warpClamp((reveal - 0.55 * Math.min(1, Math.hypot(x, y))) / 0.45, 0, 1);
+		if (local <= 0) continue;
+		const grow = warpCubic(local);
+		context.globalAlpha = alphaOf(local, depth);
+		const side = dot === undefined ? Math.max(1, Math.round(ss[index] * ratio)) : Math.max(1, Math.round(dot * ratio));
+		// depth runs 0 at the back to 1 at the front; the divide pushes the near face out.
+		const near = bend > 0 ? 1 / (1 - bend * (depth * 2 - 1)) : 1;
+		const reach = radius * grow * near;
+		context.fillRect(Math.round(cx + x * reach - side / 2), Math.round(cy + y * reach - side / 2), side, side);
+	}
+}
+
+/**
+ * The star interior's backdrop: the sky you are now inside. The sphere is wider than
+ * the viewport so its rim is never in view, every dot is the same size and the same
+ * alpha (two layers, turning at different rates), because three landing sizes and a
+ * depth-shaded alpha read as a speckled ball rather than a room. Drawn with `screen`
+ * so it only lights the dark plane. Returns a stop function.
+ */
+function mountInteriorShell(parent, hue) {
+	if (typeof document === "undefined") return () => undefined;
+	const canvas = document.createElement("canvas");
+	canvas.className = "dgv-inside-shell";
+	parent.appendChild(canvas);
+	const context = canvas.getContext("2d");
+	const ratio = Math.min(window.devicePixelRatio || 1, 2);
+	const still = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+	const colour = `hsl(${hue}, 60%, 72%)`;
+	let frame = 0;
+	let last = 0;
+	const paint = (now) => {
+		frame = still ? 0 : requestAnimationFrame(paint);
+		// 30 fps is plenty for a turn this slow and halves the cost behind a live chat.
+		if (!still && now - last < 32) return;
+		last = now;
+		const width = window.innerWidth;
+		const height = window.innerHeight;
+		if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) {
+			canvas.width = Math.round(width * ratio);
+			canvas.height = Math.round(height * ratio);
+		}
+		context.setTransform(1, 0, 0, 1, 0, 0);
+		context.globalAlpha = 1;
+		context.clearRect(0, 0, canvas.width, canvas.height);
+		context.fillStyle = colour;
+		// 0.52 × the diagonal puts the sphere's rim outside the frame in every aspect
+		// ratio, so the dots fill the window evenly instead of clustering into a disc.
+		const radius = Math.hypot(width, height) * 0.52 * ratio;
+		const centreX = (width / 2) * ratio;
+		const centreY = (height / 2) * ratio;
+		// The sphere is 2.4× wider now, so the same angular rate would sweep the dots
+		// across the frame 2.4× faster; halving it keeps the drift reading as slow.
+		const spin = shellSpin(now) * 0.45;
+		paintShell(context, centreX, centreY, radius, ratio, spin, 1, () => 0.3, 1.4);
+		// A second, slower sphere a shade dimmer: two even layers read as depth, where
+		// one layer of varied dots read as noise.
+		paintShell(context, centreX, centreY, radius, ratio, spin * 0.37 + 1.2, 1, () => 0.18, 1.4);
+	};
+	frame = requestAnimationFrame(paint);
+	return () => {
+		cancelAnimationFrame(frame);
+		canvas.remove();
+	};
+}
+
 function warpClamp(value, low, high) {
 	return value < low ? low : value > high ? high : value;
 }
@@ -36,7 +151,7 @@ function playWarp(options) {
 		return null;
 	}
 	warpState.stop?.();
-	const base = typeof options.base === "string" ? options.base : "#1c1c1c";
+	const base = typeof options.base === "string" ? options.base : "#000000";
 	const hue = Number.isFinite(options.hue) ? options.hue : 200;
 	const reverse = options.reverse === true;
 	const still = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -82,22 +197,7 @@ function playWarp(options) {
 	};
 	for (let index = 0; index < FLIGHT; index += 1) spawn(index, 0.15 + Math.random() * 0.85);
 
-	// Landing: a golden-spiral shell of hard squares (1.2 / 2 / 3 CSS px).
-	const SHELL = still ? 0 : 1700;
-	const sx = new Float32Array(SHELL);
-	const sy = new Float32Array(SHELL);
-	const sz = new Float32Array(SHELL);
-	const ss = new Float32Array(SHELL);
-	const golden = Math.PI * (3 - Math.sqrt(5));
-	for (let index = 0; index < SHELL; index += 1) {
-		const y = 1 - (index / (SHELL - 1)) * 2;
-		const ring = Math.sqrt(Math.max(0, 1 - y * y));
-		sx[index] = Math.cos(golden * index) * ring;
-		sy[index] = y;
-		sz[index] = Math.sin(golden * index) * ring;
-		const pick = (index * 0.618034) % 1;
-		ss[index] = pick < 0.7 ? 1.2 : pick < 0.92 ? 2 : 3;
-	}
+	const SHELL = still ? 0 : SHELL_DOTS;
 	const flightColour = (tint) => `hsl(${hue}, ${Math.round(18 + 34 * tint)}%, ${Math.round(86 - 10 * tint)}%)`;
 	const shellColour = `hsl(${hue}, 60%, 72%)`;
 
@@ -183,23 +283,26 @@ function playWarp(options) {
 		const reveal = reverse ? 1 - warpClamp(clock / 520, 0, 1) : warpClamp((clock - holdAt) / 950, 0, 1);
 		if (SHELL > 0 && reveal > 0) {
 			const glow = reverse ? 1 : 1.8 - 0.8 * warpClamp((clock - holdAt) / 1300, 0, 1);
-			const radius = Math.min(width, height) * 0.44 * ratio;
-			const spin = clock * 0.00022;
-			const cos = Math.cos(spin);
-			const sin = Math.sin(spin);
+			// The shell is flown *into*: it starts as a ball you approach from outside and
+			// grows until its rim leaves the frame — which is exactly where the interior's
+			// room takes over (same radius, spin, dot size and alpha), so the hand-over is
+			// invisible instead of jumping to a second, differently-shaped shell.
+			const wrap = warpCubic(reveal);
+			const ball = Math.min(width, height) * 0.3 * ratio;
+			const room = Math.hypot(width, height) * 0.52 * ratio;
 			context.fillStyle = shellColour;
-			for (let index = 0; index < SHELL; index += 1) {
-				const x = sx[index] * cos - sz[index] * sin;
-				const z = sx[index] * sin + sz[index] * cos;
-				const y = sy[index] * 0.94 + z * 0.34;
-				const depth = (z * 0.94 - sy[index] * 0.34 + 1) / 2;
-				const local = warpClamp((reveal - 0.55 * Math.min(1, Math.hypot(x, y))) / 0.45, 0, 1);
-				if (local <= 0) continue;
-				const grow = warpCubic(local);
-				context.globalAlpha = Math.min(0.95, (0.32 + 0.5 * depth) * glow * Math.min(1, local * 2));
-				const side = Math.max(1, Math.round(ss[index] * ratio));
-				context.fillRect(Math.round(cx + x * radius * grow - side / 2), Math.round(cy + y * radius * grow - side / 2), side, side);
-			}
+			paintShell(
+				context,
+				cx,
+				cy,
+				ball + (room - ball) * wrap,
+				ratio,
+				shellSpin(now) * 0.45,
+				reveal,
+				(local, depth) => Math.min(0.95, ((0.32 + 0.5 * depth) * glow * Math.min(1, local * 2)) * (1 - wrap) + 0.3 * wrap),
+				1.4,
+				0.42 * (1 - wrap)
+			);
 		}
 		frame = requestAnimationFrame(paint);
 	};

@@ -47,38 +47,90 @@
 /* ── 2. starfield page ───────────────────────────────────────────────── */
 
 .dgv-page {
+	position: relative;
 	display: flex;
 	flex-direction: column;
 	height: 100%;
 	min-height: 0;
-	background: #1c1c1c;
+	background: #000000;
 	color: #eef2fb;
 }
 
+/* Header: no strip of its own. It floats over the starfield with a transparent
+ * background; empty header space passes drags through to the canvas. */
 .dgv-head {
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	z-index: 40;
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
 	gap: 12px;
-	flex: none;
-	padding: 10px 16px;
-	background: linear-gradient(180deg, rgba(28, 28, 28, 0.94), rgba(28, 28, 28, 0.78));
-	border-bottom: 0.5px solid rgba(150, 170, 220, 0.14);
+	padding: 10px 16px 10px var(--dgv-head-inset, 16px);
+	background: transparent;
+	pointer-events: none;
+	text-shadow: 0 1px 6px rgba(0, 0, 0, 0.85);
+}
+
+.dgv-head > * {
+	pointer-events: auto;
 }
 
 .dgv-head-main {
 	display: flex;
-	flex-direction: column;
-	gap: 2px;
+	align-items: center;
+	gap: 10px;
 	min-width: 0;
 }
 
+.dgv-head-text {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	min-width: 0;
+}
+
+/* Wordmark: a high-contrast italic serif filled with a slowly drifting nebula
+ * gradient. The glow is a drop-shadow filter because a text-shadow would paint
+ * over the transparent, gradient-clipped glyphs and muddy them. The gradient only
+ * paints inside the padding box, so the padding (cancelled by negative margins)
+ * makes room for the italic overhang and the g/y descenders. */
 .dgv-title {
-	font-size: 14px;
-	font-weight: 600;
-	line-height: 20px;
-	letter-spacing: 0.02em;
+	font-family: "Didot", "Bodoni 72", "Playfair Display", "Times New Roman", serif;
+	font-style: italic;
+	font-size: 26px;
+	font-weight: 400;
+	line-height: 28px;
+	letter-spacing: 0.06em;
+	padding: 4px 0.3em 9px 0.1em;
+	margin: -4px -0.3em -9px -0.1em;
 	color: #f2f5ff;
+	background: linear-gradient(100deg, #9fe7ff 0%, #ffffff 22%, #b9c8ff 42%, #d6a8ff 62%, #ffc2e6 80%, #9fe7ff 100%);
+	background-size: 220% 100%;
+	-webkit-background-clip: text;
+	background-clip: text;
+	-webkit-text-fill-color: transparent;
+	text-shadow: none;
+	filter: drop-shadow(0 0 6px rgba(150, 180, 255, 0.45)) drop-shadow(0 0 18px rgba(170, 120, 255, 0.25));
+	animation: dgv-nebula 14s linear infinite;
+	user-select: none;
+}
+
+@keyframes dgv-nebula {
+	from {
+		background-position: 0% 50%;
+	}
+	to {
+		background-position: 220% 50%;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.dgv-title {
+		animation: none;
+	}
 }
 
 .dgv-stat {
@@ -90,23 +142,36 @@
 	text-overflow: ellipsis;
 }
 
+/* The tool row wraps instead of squeezing: at 12 px with Chinese labels the chips hit
+ * their min-content width and used to overflow each other at the right edge. */
 .dgv-tools {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
+	justify-content: flex-end;
 	gap: 6px;
+	row-gap: 6px;
 	margin-left: auto;
+	min-width: 0;
+}
+
+/* Chips keep their natural width; nothing shrinks into its neighbour. */
+.dgv-tools > * {
+	flex: 0 0 auto;
 	min-width: 0;
 }
 
 .dgv-search {
 	box-sizing: border-box;
-	width: 210px;
+	/* Room for the chips first: the field gives way on a narrow window. */
+	width: clamp(130px, 17vw, 210px);
 	height: 28px;
 	padding: 0 10px;
 	font-size: 12px;
 	color: #eef2fb;
-	background: rgba(140, 160, 210, 0.1);
-	border: 0.5px solid rgba(150, 170, 220, 0.2);
+	background: rgba(8, 12, 24, 0.72);
+	border: 0.5px solid rgba(130, 170, 255, 0.24);
+	box-shadow: inset 0 0 12px rgba(80, 120, 220, 0.12);
 	border-radius: var(--dsw-radius-md, 8px);
 	outline: none;
 }
@@ -150,6 +215,25 @@
 	background: linear-gradient(180deg, #dfe8ff, #a8c4ff);
 	border-color: transparent;
 	font-weight: 550;
+	box-shadow: 0 0 14px rgba(140, 180, 255, 0.35);
+}
+
+.dgv-head .dgv-btn:not(.dgv-btn-primary) {
+	background: rgba(14, 20, 40, 0.55);
+	border-color: rgba(130, 170, 255, 0.22);
+}
+
+.dgv-head .dgv-btn:not(.dgv-btn-primary):hover,
+.dgv-head .dgv-btn:not(.dgv-btn-primary):focus-visible {
+	background: rgba(40, 60, 120, 0.45);
+	border-color: rgba(150, 190, 255, 0.5);
+	box-shadow: 0 0 12px rgba(110, 160, 255, 0.28);
+}
+
+.dgv-head .dgv-btn-on:not(.dgv-btn-primary) {
+	color: #cfe0ff;
+	border-color: rgba(150, 190, 255, 0.55);
+	box-shadow: inset 0 0 10px rgba(110, 160, 255, 0.22);
 }
 
 .dgv-btn-primary:hover,
@@ -277,6 +361,14 @@
 	display: flex;
 	flex: 1;
 	min-height: 0;
+}
+
+.dgv-body > .dgv-panel {
+	margin-top: var(--dgv-head-h, 0px);
+}
+
+.dgv-empty {
+	padding-top: calc(24px + var(--dgv-head-h, 0px));
 }
 
 .dgv-panel {
@@ -708,6 +800,44 @@
 	background: #f4f8ff;
 }
 
+.dgv-switch-end {
+	margin-left: auto;
+}
+
+.dgv-swatch {
+	flex: none;
+	width: 18px;
+	height: 18px;
+	padding: 0;
+	border: 0.5px solid rgba(150, 170, 220, 0.3);
+	border-radius: 50%;
+	cursor: pointer;
+}
+
+.dgv-swatch-on {
+	box-shadow: 0 0 0 1.5px #000, 0 0 0 3px rgba(220, 232, 255, 0.85);
+}
+
+.dgv-color {
+	flex: none;
+	width: 26px;
+	height: 20px;
+	padding: 0;
+	background: none;
+	border: 0.5px solid rgba(150, 170, 220, 0.3);
+	border-radius: 5px;
+	cursor: pointer;
+}
+
+.dgv-color::-webkit-color-swatch-wrapper {
+	padding: 2px;
+}
+
+.dgv-color::-webkit-color-swatch {
+	border: none;
+	border-radius: 3px;
+}
+
 .dgv-pair {
 	display: flex;
 	gap: 6px;
@@ -784,7 +914,204 @@
 	text-decoration: underline;
 }
 
+/* ── 3b. panel extras: notch sliders, help, grip, inline rows ─────── */
+
+.dgv-panel-locale {
+	cursor: pointer;
+	background: transparent;
+}
+
+.dgv-panel-locale:hover {
+	color: #f2f5ff;
+	border-color: rgba(168, 196, 255, 0.5);
+}
+
+.dgv-panel-x-on {
+	color: #f2f5ff;
+	background: rgba(140, 160, 210, 0.2);
+}
+
+.dgv-help {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	margin: 0 12px 8px;
+	padding: 8px 10px;
+	font-size: 11px;
+	line-height: 15px;
+	color: rgba(206, 218, 244, 0.8);
+	background: rgba(140, 160, 210, 0.08);
+	border: 0.5px solid rgba(150, 170, 220, 0.2);
+	border-radius: 8px;
+}
+
+.dgv-help b {
+	font-size: 11.5px;
+	font-weight: 600;
+	color: #eef2fb;
+}
+
+.dgv-panel-grip {
+	flex: none;
+	width: 5px;
+	margin-left: -3px;
+	cursor: col-resize;
+	z-index: 3;
+	background: transparent;
+	transition: background 120ms ease;
+}
+
+.dgv-panel-grip:hover {
+	background: rgba(168, 196, 255, 0.28);
+}
+
+.dgv-slider {
+	position: relative;
+	display: block;
+	min-width: 0;
+}
+
+.dgv-notch {
+	position: absolute;
+	top: 3px;
+	width: 1px;
+	height: 10px;
+	margin-left: -0.5px;
+	background: rgba(206, 218, 244, 0.42);
+	pointer-events: none;
+}
+
+.dgv-inline {
+	display: grid;
+	grid-template-columns: 76px 1fr;
+	align-items: center;
+	gap: 7px;
+	font-size: 11.5px;
+	color: rgba(186, 200, 232, 0.75);
+}
+
+.dgv-toggles-flush,
+.dgv-section .dgv-toggles-flush {
+	padding: 0;
+	min-width: 0;
+}
+
+.dgv-toggles-flush .dgv-chip {
+	flex: none;
+}
+
+.dgv-badge-preview {
+	color: #bfe3ff;
+	background: rgba(120, 190, 255, 0.16);
+}
+
+.dgv-badge-quiet {
+	color: rgba(178, 192, 224, 0.6);
+	background: rgba(140, 160, 210, 0.1);
+}
+
+.dgv-mine-input {
+	width: 96px;
+	height: 20px;
+	padding: 0 6px;
+	font-size: 11px;
+	color: #eef2fb;
+	background: rgba(140, 160, 210, 0.16);
+	border: 0;
+	outline: none;
+}
+
+.dgv-mine-ask {
+	padding: 2px 4px 2px 8px;
+	font-size: 11px;
+	color: #ffd8a8;
+}
+
+/* ── 3c. search dropdown and scene banners ───────────────────────── */
+
+.dgv-searchbox {
+	position: relative;
+}
+
+.dgv-search-drop {
+	position: absolute;
+	top: 32px;
+	left: 0;
+	z-index: 90;
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	width: max(100%, 280px);
+	padding: 4px;
+	background: rgba(28, 28, 28, 0.98);
+	border: 0.5px solid rgba(150, 170, 220, 0.24);
+	border-radius: var(--dsw-radius-lg, 10px);
+	box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55);
+}
+
+.dgv-search-hit {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	width: 100%;
+	padding: 5px 7px;
+	font-size: 12px;
+	color: rgba(206, 218, 244, 0.86);
+	background: transparent;
+	border: 0;
+	border-radius: 7px;
+	cursor: pointer;
+	text-align: left;
+}
+
+.dgv-search-hit-on {
+	background: rgba(140, 160, 210, 0.16);
+}
+
+.dgv-search-none {
+	padding: 6px 8px;
+	font-size: 11.5px;
+	color: rgba(178, 192, 224, 0.5);
+}
+
+.dgv-banner {
+	position: absolute;
+	top: calc(var(--dgv-head-h, 0px) + 14px);
+	left: 50%;
+	z-index: 70;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 6px 8px 6px 14px;
+	font-size: 12px;
+	color: #eef2fb;
+	background: rgba(28, 28, 28, 0.94);
+	border: 0.5px solid rgba(168, 196, 255, 0.36);
+	border-radius: 999px;
+	box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+	transform: translateX(-50%);
+	white-space: nowrap;
+}
+
+.dgv-banner-notice {
+	top: calc(var(--dgv-head-h, 0px) + 56px);
+	padding-right: 14px;
+	color: #ffd8a8;
+	border-color: rgba(255, 200, 130, 0.36);
+}
 /* ── 4. star info card ──────────────────────────────────────────────── */
+
+/* The batched GPU bodies (src/gpu.js) sit above the 2D layer: links and captions are drawn
+ * under them, which is what makes a thousand bodies cost two draw calls. */
+.dgv-glow {
+	position: absolute;
+	inset: 0;
+	z-index: 3;
+	width: 100%;
+	height: 100%;
+	pointer-events: none;
+}
 
 .dgv-card {
 	position: absolute;
@@ -800,6 +1127,17 @@
 	border-radius: 12px;
 	box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
 	backdrop-filter: blur(10px);
+	cursor: grab;
+	user-select: none;
+	touch-action: none;
+}
+
+.dgv-card-dragging {
+	cursor: grabbing;
+}
+
+.dgv-card button {
+	cursor: pointer;
 }
 
 .dgv-card-head {
@@ -900,14 +1238,26 @@
  * of the star around it and gives it one way back out.
  * ------------------------------------------------------------------ */
 
+.dgv-inside-shell {
+	position: fixed;
+	inset: 0;
+	z-index: 2147481990;
+	width: 100%;
+	height: 100%;
+	pointer-events: none;
+	mix-blend-mode: screen;
+}
+
 .dgv-inside-glow {
 	position: fixed;
 	inset: 0;
 	z-index: 2147482000;
 	pointer-events: none;
+	/* A gentle rim of the star's own hue: the gradient starts late and stays weak so the
+	 * shell's dots keep one colour from the middle to the edges. */
 	background:
-		radial-gradient(120% 84% at 50% 50%, transparent 52%, hsla(var(--dgv-inside-hue), 62%, 56%, 0.2) 100%),
-		radial-gradient(60% 40% at 50% 0%, hsla(var(--dgv-inside-hue), 64%, 62%, 0.1), transparent 70%);
+		radial-gradient(120% 84% at 50% 50%, transparent 62%, hsla(var(--dgv-inside-hue), 62%, 56%, 0.14) 100%),
+		radial-gradient(60% 40% at 50% 0%, hsla(var(--dgv-inside-hue), 64%, 62%, 0.08), transparent 70%);
 	box-shadow: inset 0 0 70px hsla(var(--dgv-inside-hue), 62%, 56%, 0.26);
 	mix-blend-mode: screen;
 }
@@ -951,5 +1301,440 @@
 /* Chat surfaces read as the star's own plane rather than a stock sheet. */
 body[data-dgv-inside] [data-dsh-conversation-root],
 body[data-dgv-inside] [data-dsh-main-panel] {
-	background-color: var(--dgv-inside-base, #1c1c1c) !important;
+	background-color: var(--dgv-inside-base, #000000) !important;
+}
+
+/* ── 9. memory library ──────────────────────────────────────────────── */
+
+/* Same page shell as the galaxy, with the map in the middle and two columns
+ * that read like a file browser: bodies on the left, the open file on the right. */
+
+.dgv-mem-body {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+}
+
+.dgv-mem-panel {
+	display: flex;
+	flex-direction: column;
+	flex: none;
+	width: 280px;
+	min-height: 0;
+	margin-top: var(--dgv-head-h, 0px);
+	background: rgba(26, 27, 31, 0.9);
+	border-right: 0.5px solid rgba(150, 170, 220, 0.14);
+	backdrop-filter: blur(10px);
+	font-size: 12px;
+}
+
+.dgv-mem-tabs {
+	display: flex;
+	gap: 2px;
+	padding: 10px 10px 8px;
+}
+
+.dgv-mem-tab {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	flex: 1;
+	justify-content: center;
+	padding: 5px 6px;
+	border: 0.5px solid transparent;
+	border-radius: 7px;
+	background: transparent;
+	color: rgba(196, 207, 232, 0.66);
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+	transition: color 140ms ease, background 140ms ease, border-color 140ms ease;
+}
+
+.dgv-mem-tab:hover {
+	color: #eef2fb;
+	background: rgba(150, 170, 220, 0.1);
+}
+
+.dgv-mem-tab-on {
+	color: #eef2fb;
+	background: rgba(150, 170, 220, 0.16);
+	border-color: rgba(150, 170, 220, 0.24);
+}
+
+.dgv-mem-tab-n {
+	font-size: 10.5px;
+	color: rgba(178, 192, 224, 0.5);
+	font-variant-numeric: tabular-nums;
+}
+
+.dgv-mem-filter {
+	margin: 0 10px 8px;
+	padding: 6px 9px;
+	border: 0.5px solid rgba(150, 170, 220, 0.2);
+	border-radius: 7px;
+	background: rgba(12, 13, 16, 0.5);
+	color: #eef2fb;
+	font: inherit;
+	font-size: 12px;
+}
+
+.dgv-mem-filter:focus-visible {
+	outline: none;
+	border-color: rgba(150, 190, 255, 0.5);
+}
+
+.dgv-mem-list {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	padding: 0 6px 8px;
+}
+
+.dgv-mem-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	padding: 5px 7px;
+	border: 0.5px solid transparent;
+	border-radius: 6px;
+	background: transparent;
+	color: rgba(224, 231, 246, 0.86);
+	font: inherit;
+	font-size: 12px;
+	text-align: left;
+	cursor: pointer;
+}
+
+.dgv-mem-row:hover {
+	background: rgba(150, 170, 220, 0.1);
+}
+
+.dgv-mem-row-on {
+	background: rgba(150, 190, 255, 0.16);
+	color: #ffffff;
+}
+
+.dgv-mem-dot {
+	flex: none;
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: currentColor;
+	box-shadow: 0 0 7px currentColor;
+}
+
+.dgv-mem-name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.dgv-mem-meta {
+	flex: none;
+	font-size: 10.5px;
+	color: rgba(178, 192, 224, 0.5);
+	font-variant-numeric: tabular-nums;
+}
+
+.dgv-mem-none {
+	padding: 14px 10px;
+	color: rgba(178, 192, 224, 0.5);
+	font-size: 12px;
+}
+
+.dgv-mem-card {
+	flex: none;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 10px 12px 12px;
+	border-top: 0.5px solid rgba(150, 170, 220, 0.16);
+	background: linear-gradient(180deg, rgba(26, 27, 31, 0.86), rgba(20, 21, 25, 0.96));
+}
+
+.dgv-mem-card-kind {
+	font-size: 10.5px;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: rgba(178, 192, 224, 0.55);
+}
+
+.dgv-mem-card-name {
+	font-size: 13px;
+	font-weight: 600;
+	color: #eef2fb;
+	overflow-wrap: anywhere;
+}
+
+.dgv-mem-card-meta,
+.dgv-mem-card-path {
+	font-size: 11px;
+	color: rgba(178, 192, 224, 0.62);
+	overflow-wrap: anywhere;
+}
+
+.dgv-mem-card-desc {
+	font-size: 11.5px;
+	line-height: 1.45;
+	color: rgba(206, 216, 236, 0.72);
+	max-height: 4.4em;
+	overflow: hidden;
+}
+
+.dgv-mem-card .dgv-btn {
+	margin-top: 4px;
+}
+
+/* 星空 ⇄ 记忆库: the outgoing view's last frame dissolves over the incoming one. */
+.dgv-view {
+	position: relative;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+}
+
+.dgv-view-dissolve {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	pointer-events: none;
+	z-index: 60;
+	animation: dgv-view-dissolve 500ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes dgv-view-dissolve {
+	from {
+		opacity: 1;
+		transform: scale(1);
+	}
+	to {
+		opacity: 0;
+		transform: scale(1.02);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.dgv-view-dissolve {
+		animation-duration: 1ms;
+	}
+}
+
+.dgv-mem-stage {
+	position: relative;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+}
+
+.dgv-mem-canvas {
+	display: block;
+	width: 100%;
+	height: 100%;
+	cursor: grab;
+	touch-action: none;
+}
+
+.dgv-mem-tip {
+	position: absolute;
+	z-index: 30;
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	max-width: 260px;
+	padding: 7px 10px;
+	border: 0.5px solid rgba(150, 170, 220, 0.22);
+	border-radius: 8px;
+	background: rgba(14, 15, 19, 0.92);
+	box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
+	pointer-events: none;
+	font-size: 11.5px;
+	color: #eef2fb;
+}
+
+.dgv-mem-tip-kind {
+	font-size: 10px;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: rgba(178, 192, 224, 0.55);
+}
+
+.dgv-mem-tip-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.dgv-mem-tip-meta {
+	font-size: 11px;
+	color: rgba(178, 192, 224, 0.62);
+}
+
+.dgv-mem-status {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	padding: 0 24px;
+	text-align: center;
+}
+
+.dgv-mem-status-title {
+	font-size: 13px;
+	color: rgba(226, 233, 248, 0.9);
+}
+
+.dgv-mem-status-note {
+	max-width: 46ch;
+	font-size: 12px;
+	line-height: 1.5;
+	color: rgba(178, 192, 224, 0.6);
+	overflow-wrap: anywhere;
+}
+
+.dgv-mem-badge {
+	position: absolute;
+	left: 50%;
+	bottom: 18px;
+	transform: translateX(-50%);
+	padding: 5px 12px;
+	border-radius: 999px;
+	border: 0.5px solid rgba(150, 170, 220, 0.2);
+	background: rgba(14, 15, 19, 0.8);
+	font-size: 11.5px;
+	color: rgba(214, 224, 244, 0.8);
+	pointer-events: none;
+}
+
+.dgv-mem-hint {
+	position: absolute;
+	left: 296px;
+	bottom: 14px;
+	font-size: 11px;
+	color: rgba(178, 192, 224, 0.42);
+	pointer-events: none;
+	text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
+}
+
+/* Editor drawer: the open file, over the map on the right. */
+
+.dgv-mem-editor {
+	position: absolute;
+	top: calc(var(--dgv-head-h, 0px) + 8px);
+	right: 12px;
+	bottom: 12px;
+	z-index: 45;
+	display: flex;
+	flex-direction: column;
+	width: min(46vw, 520px);
+	min-height: 0;
+	border: 0.5px solid rgba(150, 170, 220, 0.2);
+	border-radius: 12px;
+	background: rgba(18, 19, 23, 0.96);
+	box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+	backdrop-filter: blur(12px);
+	overflow: hidden;
+}
+
+.dgv-mem-editor-head {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	padding: 12px 12px 10px;
+	border-bottom: 0.5px solid rgba(150, 170, 220, 0.14);
+}
+
+.dgv-mem-editor-text {
+	flex: 1;
+	min-width: 0;
+}
+
+.dgv-mem-editor-name {
+	font-size: 13px;
+	font-weight: 600;
+	color: #eef2fb;
+	overflow-wrap: anywhere;
+}
+
+.dgv-mem-editor-path {
+	font-size: 10.5px;
+	color: rgba(178, 192, 224, 0.5);
+	overflow-wrap: anywhere;
+}
+
+.dgv-mem-editor-x {
+	margin-left: auto;
+}
+
+.dgv-mem-note {
+	padding: 8px 12px;
+	font-size: 11.5px;
+	line-height: 1.45;
+	color: rgba(206, 216, 236, 0.8);
+	background: rgba(150, 190, 255, 0.08);
+	border-bottom: 0.5px solid rgba(150, 170, 220, 0.12);
+}
+
+.dgv-mem-note-warn {
+	color: #ffd9a8;
+	background: rgba(255, 184, 92, 0.1);
+}
+
+.dgv-mem-text {
+	flex: 1;
+	min-height: 0;
+	margin: 0;
+	padding: 12px;
+	border: 0;
+	background: transparent;
+	color: #e8eefb;
+	font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+	font-size: 12px;
+	line-height: 1.6;
+	resize: none;
+	tab-size: 2;
+}
+
+.dgv-mem-text:focus-visible {
+	outline: none;
+}
+
+.dgv-mem-editor-foot {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 9px 12px;
+	border-top: 0.5px solid rgba(150, 170, 220, 0.14);
+}
+
+.dgv-mem-editor-status {
+	flex: 1;
+	min-width: 0;
+	font-size: 11px;
+	color: rgba(178, 192, 224, 0.6);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.dgv-btn-view {
+	flex: none;
+}
+
+@media (max-width: 900px) {
+	.dgv-mem-panel {
+		width: 224px;
+	}
+
+	.dgv-mem-hint {
+		left: 240px;
+	}
 }

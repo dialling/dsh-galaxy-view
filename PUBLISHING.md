@@ -35,8 +35,8 @@ shipped in the npm tarball.
    npm publish
    ```
 
-4. **(Optional) GitHub release `v0.2.0`.** Attach the `npm pack` tarball as
-   `dsh-graph-view-0.2.0.tgz` for the tarball install path; the release notes
+4. **(Optional) GitHub release `v0.3.0`.** Attach the `npm pack` tarball as
+   `dsh-graph-view-0.3.0.tgz` for the tarball install path; the release notes
    double as the market's "what changed" link.
 
 5. **Open the market pull request — at least 1 day after the repo was
