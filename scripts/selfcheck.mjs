@@ -1342,6 +1342,17 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		assert.ok(fade(12) * 12 < 1.7 && fade(12) > 0.1, `twelve bodies in one cell sum to ${(fade(12) * 12).toFixed(2)}× a lone halo`);
 	}
 	assert.ok(bundle.includes("const CAPTION_WIDTHS = new Map();"), "caption widths are cached, not measured per frame");
+	// 中 / EN in the header, and the two dictionaries must stay in lockstep.
+	assert.ok(bundle.includes('t("lang.switch")') && bundle.includes('update({ language: settings.language === "en" ? "zh" : "en" })'), "the header carries a 中 / EN switch");
+	{
+		const zhBlock = clientSource.slice(clientSource.indexOf("const zh = {"), clientSource.indexOf("const en = {"));
+		const enBlock = clientSource.slice(clientSource.indexOf("const en = {"), clientSource.indexOf("};", clientSource.indexOf("const en = {")));
+		const keysOf = (text) => [...text.matchAll(/^\t"([^"]+)":/gm)].map((match) => match[1]);
+		const zhKeys = keysOf(zhBlock);
+		const enKeys = keysOf(enBlock);
+		assert.equal(zhKeys.length, enKeys.length, `both languages carry the same ${zhKeys.length} keys`);
+		assert.deepEqual(zhKeys.filter((key) => !enKeys.includes(key)), [], "no key is Chinese-only");
+	}
 	// 搜索: fuzzy subsequence, ranked by score then activity — the reference modal's behaviour.
 	{
 		const score = (text, query) => {
@@ -1423,7 +1434,7 @@ assert.ok(paletteAt < guidesAt, "filament palette is bound before the layout gui
 	assert.ok(statSync(join(root, pkg.icon)).size <= 256 * 1024, "the icon is ≤ 256 KiB");
 	assert.deepEqual(
 		[...pkg.files].sort(),
-		["CHANGELOG.md", "LICENSE", "README.md", "README.zh.md", "assets/icon.svg", "cordis.patch.yml", "lib", "locale"].sort(),
+		["CHANGELOG.md", "LICENSE", "README.md", "README.en.md", "assets/icon.svg", "cordis.patch.yml", "lib", "locale"].sort(),
 		"files ships only lib, locale, the readmes, LICENSE, CHANGELOG, the patch and the icon"
 	);
 	for (const [key, target] of Object.entries(pkg.exports)) {

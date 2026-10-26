@@ -1,320 +1,271 @@
-# dsh-graph-view · Galaxy view
+# dsh-graph-view · 银河视图
 
-Every workspace and conversation in DeepSeek Harness, drawn as a **three-dimensional
-galaxy** inside a hollow shell of hard white dots: workspaces are suns on spiral
-arms, conversations are small sharp stars orbiting them, and fork/subagent lineage
-draws a thin filament. The camera orbits on its own; drag to take over, scroll to
-dolly. Click a star and the view warps into that conversation or workspace; the
-**回到星系 / Back to the galaxy** capsule brings you back out.
+**中文** · [English](README.en.md)
 
-The visual direction follows Obsidian's [Galaxy View](https://community.obsidian.md/plugins/galaxy-view)
-(a cinematic 3D graph in the NASA Eyes style): a pure black sky, a crisp dot sphere,
-small cool-and-warm stars, and very thin, faint links.
+把 DeepSeek Harness 的工作区与对话画成一片**三维星系**，外面罩着一层由硬边白点
+组成的空心球壳：工作区是旋臂上的恒星，对话是绕着它们的小巧锐利的星点，
+fork/子智能体之间拉出细丝；相机缓慢自转，拖一下就绕轨，滚轮推拉镜头。点一颗星，
+画面会跃迁进那条对话或工作区；「回到星系」胶囊再把你送出来。
 
-![The galaxy view](docs/galaxy.png)
+视觉方向参照 Obsidian 的 [Galaxy View](https://community.obsidian.md/plugins/galaxy-view)
+（NASA Eyes 式的电影感 3D 图）：纯黑的深空、清晰的点阵球壳、冷暖相间的小星点、
+极细的淡色连线。
 
-## Install
+![星系视图](docs/galaxy.png)
 
-**From the DSH plugin market** (once published): search `dsh-graph-view`.
+## 安装
 
-**From npm into a profile:**
+需要 **DeepSeek Harness Desktop**（含 `main` 面板槽位与 `uiWorkspace` 服务）。
+本插件是纯前端 + 一个 host 半包，没有原生依赖。
+
+**从插件市场**（发布后）：搜 `dsh-graph-view`。
+
+**从 npm 装进某个 profile：**
 
 ```bash
 cd "$DSH_HOME/profiles/web"
-pnpm add dsh-graph-view        # or: npm install dsh-graph-view
+pnpm add dsh-graph-view        # 或者：npm install dsh-graph-view
 ```
 
-`dsh.bundle.patch` inserts the loader row; restart the app (or reopen the window).
+`dsh.bundle.patch` 会把插件行插进层栈；重启 Harness（或重开窗口）即可。
 
-**Manual, from a local checkout (development):**
+**从本仓库本地挂载（开发用）：**
 
 ```bash
-node scripts/install-into-profile.mjs                       # default web profile
-node scripts/install-into-profile.mjs --profile PATH        # explicit profile
+node scripts/install-into-profile.mjs            # 默认 web profile
+node scripts/install-into-profile.mjs --profile "$DSH_PROFILE_DIR"
 ```
 
-The script symlinks this package into `<profile>/node_modules/` and appends one
-`insert` row to `<profile>/cordis.patch.yml` (backed up first, idempotent).
+只做两件事：把本包 symlink 进 `<profile>/node_modules/`，
+再在 `<profile>/cordis.patch.yml` 末尾插一行 `insert`（改前自动备份，重复执行无副作用）。
 
-Once installed, a 星空 button appears at the right of the header in any conversation; it opens
-the galaxy, and 原版界面 (or the capsule inside a star) takes you back. Pick a preset card in the
-left panel to change the look.
+装好后打开任意会话，顶栏右侧会出现「银河」按钮；点它进入银河视图，
+「原版界面」或星体里的返回胶囊回到对话。想换外观就从左侧面板挑一张预设卡。
 
-## The look
+## 画面构成
 
-- **Sky shell.** One hollow sphere of dense **hard square dots** (2600 grains at
-  1.2 px, 900 at 2 px, 250 at 3 px, in five muted near-white tints), with a clean,
-  readable rim and an even spread — no soft light blobs. Each grain fills exactly
-  the pixels a WebGL point of its size would, so while the camera cruises the
-  small grains pop between 1 and 2 px and the sky shimmers like the reference;
-  a still view stays still.
-  780 field stars fill the interior so the disc never reads hollow. Dot sizes are
-  fixed on screen and scale with the *shell size* slider.
-- **Stars.** Bright, opaque solid discs with a crisp edge and a white-hot centre
-  that never clips to pure white, plus a tight coloured halo — at overview
-  distance conversations draw at 4–9 px and workspaces at 7–16 px, growing up to
-  15 px and 24 px close up (workspaces scale with their conversation count).
-  Selecting a star only lightly dims the others. No dark
-  outlines, no plastic glow.
-- **Colour.** The default **Deep Field** theme is Galaxy View's Hubble palette:
-  cyan, gold, blue, rust, green, cream, violet, pink and silver, cool and warm in
-  turn, with cream and silver kept pale. As in Galaxy View, the workspaces with
-  the most conversations take the first colours, so the big ones never share one.
-  Every theme (Deep Field, Hubble, Neon, Sunset, Cyber, Matrix, Aurora) draws on
-  pure black (`#000000`); colour comes only from the stars, the links and the
-  world-space haze, never from a tinted backdrop.
-- **Links.** Bright wires about 1.1 px wide, each a gradient from one star's
-  colour to the other's, so a link between a blue and a gold star turns bluer
-  near the blue end and more golden near the gold end. Every hue is drawn at the
-  same brightness, and overlapping links do not add up. They bow gently away from
-  the centre like the reference, and only real relationships are drawn:
-  workspace→conversation membership and parent→child lineage. The **Links**
-  button in the header shows or hides them; clicking a conversation keeps only
-  its own links in either state, and the Links section sets their width, opacity,
-  bow and colour (star colours, a swatch, or any colour).
-- **Composition.** The stars fill the sphere interior instead of bunching at the
-  centre: the spiral shows two clear arms with a sparse middle, and all eight
-  layouts spread into the same volume while staying recognisable. The overview
-  always frames the whole shell, so the rim is never cropped.
-- **No centre light.** No central light ball and no bloom wash — at rest, during a
-  dive, or during the warp. The centre holds only 110 faint dust grains.
+- **星空球壳。** 一个空心球面，铺满致密的**硬边方点**
+  （2600 颗 1.2 px、900 颗 2 px、250 颗 3 px，五种低饱和近白色调），
+  边缘清晰可读、分布均匀，没有柔光团。每颗颗粒覆盖的像素与同尺寸 WebGL 点完全一致，
+  所以镜头环绕时小颗粒会在 1 px 与 2 px 之间跳动，星空像参照实现一样闪烁；画面静止时不闪。壳内还有 780 颗场内浮星，
+  让盘面不会显得空。颗粒在屏幕上的尺寸固定，只随「球壳大小」滑杆缩放。
+- **星点。** 明亮、不透明的实心圆盘：边缘利落、白热核心（永不削成纯白），
+  外加一圈贴边的彩色光晕——总览时对话 4–9 px、工作区 7–16 px，镜头拉近后
+  分别可放大到 15 px 和 24 px（随对话数变大）。选中别的星时，其余星点只轻微变暗。没有深色描边，没有塑料感的大光晕。
+- **配色。** 默认「深空」主题就是 Galaxy View 的「哈勃深空」配色：青、金、蓝、锈红、
+  绿、奶油、紫、粉、银，冷暖交替，奶油和银保持浅淡。和 Galaxy View 一样，对话最多的
+  工作区先拿颜色，大工作区之间不会撞色。七套主题（深空、哈勃、霓虹、落日、赛博、矩阵、极光）的底色
+  一律是纯黑 `#000000`；颜色只来自星点、连线和世界空间里的星云雾，不再给背景染色。
+- **连线。** 明亮细线（约 1.1 CSS 像素，Retina 上 2.2 个设备像素），从一端星点的颜色渐变到另一端；各种颜色按同一亮度绘制，重叠的连线不会叠加变亮；像参照实现一样微微弯离中心。只画真实关系：工作区→对话的归属，
+  以及父→子的派生。顶栏的「连线」按键可以显示或隐藏连线；不管开还是关，点击一个对话都只留下它的相关连线。
+  控制栏「连线」分区可以调粗细、透明度、弯曲和颜色（跟随星色、预设色块或任意自选色）。
+- **构图。** 星点铺满球壳内部而不是挤在中心：螺旋是两条清晰的旋臂加一个稀疏的
+  核心；八种布局都摊进同一个体积里，同时保持各自的辨识度。全景取景始终框住
+  整个球壳，边缘不会被裁掉。
+- **中心无大灯。** 没有中央光球、没有辉光洗白——静止、俯冲、跃迁时都没有。
+  中心只有 110 颗减半透明度的微尘。
 
-## The eight layouts
+## 八种布局
 
-A preset switches the whole geometry, not just numbers: star positions, dust and
-the faint guide skeleton all follow the layout.
+预设切换的是整套几何，不只是参数：星体位置、尘埃与淡淡的骨架线都跟随布局。
 
-| Preset | Layout | Reads as |
+| 预设 | 形状 | 读法 |
 | --- | --- | --- |
-| Galaxy 银河 | `spiral` | the two-armed disc with a sparse core |
-| Rings 星环 | `rings` | four concentric orbits, one colour per ring, no links; every body travels its own ring in a double helix |
-| Armillary 浑天 | `sphere` | an armillary sphere: five same-radius rings, each tilted into its own plane (golden-angle spread) so their union is a ball; bodies dealt onto the rings by weight and seated evenly, each ring spinning inside its own plane |
-| Solar system 太阳系 | `system` | a spherical sun of warm dust at the centre, one planet per workspace on its own nested orbit, each planet wrapped in its conversations as a small spherical shell of stars — and the whole system revolves: planets around the sun (inner fast, outer slow), moons around their planet |
-| Helix 双螺旋 | `helix` | two strands climbing 1.6 turns; workspaces are split between the strands by star count, so both carry the same number of stars and each runs the full height |
-| Matrix 矩阵 | `web` | one lumpy ball of green dots and straight links, no glow and no backdrop |
-| Cube 方阵 | `plate` | a solid cube: every star on one lattice, each workspace a block of it, the twelve edges drawn |
-| Tree 星树 | `tree` | a pure starburst: every workspace owns a ray out of the origin, spread over the sphere by the golden angle, and a heavier workspace reaches further; its conversations continue along the same ray in a tube that widens (a third of them on twigs) |
+| 银河 | `spiral` | 双旋臂盘面，核心稀疏 |
+| 星环 | `rings` | 四道同心轨道环，每环一个颜色、不显示连线；所有星体沿各自的环线做双螺旋运动 |
+| 浑天 | `sphere` | 浑天仪式的球：5 个**同半径**的圆环，各自倾斜到自己的平面（黄金角分配），合起来就是一个球；星体按体量蛇形分配到各环上均匀占位，每个环在自己的平面内自转 |
+| 太阳系 | `system` | 中心是一颗暖色的球状太阳尘埃，每个工作区一颗行星各占一条嵌套轨道，行星外层是一小团球壳状的对话星体；整个系统真的在公转——行星绕太阳（内快外慢），卫星再绕各自行星 |
+| 双螺旋 | `helix` | 两条链沿竖直轴攀升，各 1.6 圈；工作区按星体数（自身 + 对话）分配链，两条链星数基本相等，各自贯穿整个高度 |
+| 矩阵 | `web` | 一整团绿色星点与直连线，无辉光、无背景 |
+| 方阵 | `plate` | 立体正方体：所有星体落在同一套格点上，每个工作区占一块，画出 12 条棱 |
+| 星树 | `tree` | 全部由中心点放射：每个工作区一根从原点出发的射线，按黄金角均布在球面上，越重的工作区伸得越远；对话顺着同一条射线向外铺开成一根向末端变粗的管，约三分之一的分叉成细枝 |
 
-| Armillary | Rings | Tree |
+| 浑天 | 星环 | 星树 |
 | --- | --- | --- |
-| *(recapture pending)* | ![Rings](docs/appearance-rings.png) | ![Tree](docs/appearance-tree.png) |
+| *（截图待补）* | ![星环](docs/appearance-rings.png) | ![星树](docs/appearance-tree.png) |
 
-## Reading the galaxy
+## 星系怎么读
 
-| On screen | Meaning |
+| 图上 | 含义 |
 | --- | --- |
-| coloured sun | one workspace; hue fixed by workspace order, dot grows with its conversation count |
-| stars around a sun | that workspace's conversations; running ones pulse |
-| faint thread | membership; fork / subagent to parent is a brighter bowed thread |
-| drifting dust | arms and a diffuse disc (the *dust lanes* slider, off by default) — backdrop, not clickable |
-| hard white dot sphere | the sky shell: a true 3D shell of points sharing the galaxy's camera and centred on the galaxy — diving into a star moves you *through* it instead of dragging a backdrop along |
+| 带色恒星 | 一个工作区；色相按工作区顺序固定，星点越大对话越多 |
+| 恒星周围的星点 | 该工作区下的对话；运行中的会呼吸 |
+| 细丝 | 对话的归属关系；fork / 子智能体与父会话之间是更亮的弯丝 |
+| 漂浮的星尘 | 旋臂与弥散盘面（「尘埃带」滑杆，默认关闭），纯背景，不可点 |
+| 白色硬点球壳 | 星空球壳：真三维的点阵球面，与星系共用同一个摄像机，并且以星系为中心——钻进星体时是**穿过**这层球壳，而不是带着一张背景一起走 |
 
-The current session wears a white ring; archived stars are dimmer and only appear
-with *Archived* on.
+当前会话有一圈白环；已归档的星点更暗，只在「归档」打开时出现。
 
-## Interaction
+## 操作
 
-| Input | Result |
+| 输入 | 结果 |
 | --- | --- |
-| drag | orbit, with inertia; auto-orbit resumes 1.6 s after release |
-| scroll | dolly (`exp(deltaY × 0.0065)` per notch, eased in about 70 ms, quick notches add up; pulls back to about 4.5× the overview, with deep-sky stars all around) |
-| click a star or sun | dives the camera onto it (a conversation to 0.12× the overview distance in 980 ms, a workspace to 0.30× in 1150 ms) and opens a small card: title, path, time, state; its neighbourhood stays bright (selection depth 1 or 2) and the rest fades, hover never dims |
-| **Open** / **进入工作区 (Enter workspace)** in the card | plays the warp transition into that conversation or workspace |
-| double-click a star or sun | skips the card and warps straight in |
-| click a row in a workspace card | flies the camera to that conversation and selects it (double-click the row to open) |
-| `Tab` / `Shift+Tab` | walk the stars, card by card; `Enter` dives to or opens the current one |
-| `F` / `R` | focus the selection / back to the overview |
-| `Esc` | clear focus, selection and a running connect-two route |
-| header search | type a title or path, pick a hit (arrow keys + `Enter`) and the camera flies there; matches get a caption |
-| a conversation in the harness sidebar | while the galaxy is open, flies to that star instead of leaving star mode (anything not drawn opens as usual) |
-| Archived / Reset / Re-roll | show archived / refit the camera / new seed and re-solve the galaxy |
-| ☰ | collapse / expand the left control panel; drag its right edge to resize (240–480 px) |
+| 拖拽 | 绕轨旋转，带惯性；松手 1.6 秒后恢复自动环绕 |
+| 滚轮 | 推拉镜头（每格 `exp(deltaY × 0.0065)`，约 70 ms 跟上，连续滚动会累加，最远可拉到默认视角的约 4.5 倍，四周始终有深空星光） |
+| 点击星点 / 恒星 | 镜头俯冲过去（对话落到全景距离的 0.12 倍、980 ms；工作区 0.30 倍、1150 ms），弹出小卡片：标题、路径、时间与状态；它的邻域保持明亮（关联深度 1 或 2 层），其余淡下去，悬停不会压暗 |
+| 卡片里的「打开」/「进入工作区」 | 播放跃迁过场，进入那条对话或工作区 |
+| 双击星点 / 恒星 | 跳过卡片，直接跃迁 |
+| 点击恒星卡片里的某一篇 | 镜头传送过去并选中那颗星（双击该行直接打开） |
+| `Tab` / `Shift+Tab` | 在星体之间走，逐个弹出卡片；`Enter` 俯冲或打开当前项 |
+| `F` / `R` | 飞向选中的星 / 回到总览 |
+| `Esc` | 取消聚焦、选中与正在进行的「连接两篇」 |
+| 顶栏搜索框 | 输入标题或路径，选一个结果（方向键 + `Enter`），镜头飞过去；命中项显示名称 |
+| harness 侧边栏里的对话 | 银河打开时点它，镜头飞到那颗星，不会退出银河模式（没画出来的对话照常打开） |
+| 归档 / 复位 / 重排 | 显示归档 / 回到默认机位 / 换一套随机种子重新成盘 |
+| ☰ | 收起 / 展开左侧控制栏；拖动它的右边缘调整宽度（240–480 px） |
 
-![Tracking a star](docs/tracked.png)
+![追踪一颗星](docs/tracked.png)
 
-**The warp.** Entering a star first dives toward it in the live scene, then a
-tunnel of fine points stretches into 1 px light trails and settles into a hollow
-landing shell of hard squares in the star's own colour, revealed in a wave from
-the centre outward with a halo pulse. The overlay waits for the target panel to
-mount before fading, and a main-thread stall delays the phases instead of
-skipping them. Inside, the landing shell stays on as the room you are now in: the
-same sphere, widened past the frame so its rim is never in view, every dot the same
-size and the same brightness across two slowly turning layers, with a star-coloured
-rim glow and the **回到星系 / Back to the galaxy** capsule (which plays a short
-reverse warp back). With `prefers-reduced-motion`, a plain crossfade replaces the
-flight.
+**跃迁。** 进入一颗星时，先在真实场景里向它俯冲，随后一圈细点加速拉成
+1 px 的光带，最后收成该星颜色的空心灵巧球壳——硬边方点从中心向外波纹式亮起，
+光晕同步脉冲。覆盖层会等目标面板挂载完成才淡出；主线程卡顿只会推迟各阶段，
+不会跳过。进入工作区或对话后，落地球壳留在屏幕上当你此刻所在的房间：同一个球面，
+但整球放大到帧外（看不到球缘），每颗方点大小一致、亮度一致，分两层缓慢反向旋转，
+外加一圈星体颜色的内壁光晕和「回到星系」胶囊（点它播放一段短暂的反向跃迁）。
+开启「减弱动态效果」时，飞行改为淡入淡出。
 
-![Warp transition](docs/warp.png)
+![跃迁过场](docs/warp.png)
 
-Opening the galaxy view collapses the harness sidebar so it gets the whole
-window; leaving it puts the sidebar back at the width it had. If you re-open the
-sidebar while in the galaxy, it is left alone on exit.
+进入银河视图时，harness 的左侧导航栏会自动收起（给星系整窗宽度）；离开时按
+原来的宽度还原。如果你在星空里手动把导航栏拉回来了，退出时不会被再次收起。
 
-## Memory library
+## 记忆库
 
-The **Memory** button in the header swaps the galaxy for the map of what shapes the
-agent: the instruction files it reads, the skills it can load, and how often each
-skill was actually called. Both views live behind the same panel, and the choice
-survives a reload.
+顶栏的 **记忆库** 按钮把星系换成另一张图：塑造智能体行为的指令文件、能加载的技能，
+以及每个技能到底被调用过多少次。两个视图挂在同一个面板后面，选择会被记住。
 
-| On screen | Meaning |
+| 画面 | 含义 |
 | --- | --- |
-| gold body in the core | one instruction file: `AGENTS.md`, `CLAUDE.md`, `prompt-inject.md`, a `rules/*.md`, a workspace `README.md` |
-| cyan body on an arm | one skill; the hue says where it comes from (own skills / shared `~/.agents` / project / bundled), the size grows with its call count |
-| small star circling a skill | one call: a session that loaded that skill; past 16 the rest are counted, not drawn |
-| thin thread | call → the skill it loaded |
+| 内核里的金色星体 | 一份指令文件：`AGENTS.md`、`CLAUDE.md`、`prompt-inject.md`、`rules/*.md`、工作区 `README.md` |
+| 旋臂上的青色星体 | 一个技能；色相表示来源（自有 / 共享 `~/.agents` / 项目 / 随包），大小随调用次数增长 |
+| 绕着技能的小星 | 一次调用：某个会话加载了它；超过 16 次只计数，不再画点 |
+| 细线 | 调用 → 它加载的那个技能 |
 
-Click a body, or a row in the left list, to select it. The card under the list
-shows what it is and where it lives, and **Open** reads the file into the editor
-drawer on the right. The editor writes straight to disk: `⌘S` / `Ctrl+S` saves, a
-file that changed since it was opened comes back as a conflict (*reload* or
-*overwrite*), and files that ship inside the app stay read-only. Drag orbits,
-scroll zooms, double-click empty space reframes, double-click a body opens it.
+点星体或左侧列表的一行即可选中；列表下方的卡片说明它是什么、放在哪儿，**打开** 会把
+文件读进右侧编辑器。编辑器直接写回磁盘：`⌘S` / `Ctrl+S` 保存，打开之后被别处改过的文件
+会以冲突返回（*重新加载* 或 *覆盖保存*），随应用发布的文件保持只读。拖动环绕、滚轮缩放、
+双击空白复位、双击星体打开。
 
-The Node half finds the library itself — DSH home, `~/.agents`, each workspace's
-`.dsh/skills` and `.agents/skills`, vendor and extension roots, plus whatever the
-host's skill registry knows — and reads the skill calls back out of every session
-log, plain `.jsonl` and appended-frame `.zstd` alike. It serves one authenticated
-RPC channel, `/dsh-graph-view`, on the host's web server, and the browser half only
-ever sees paths discovery returned. Details: [docs/memory-library.md](docs/memory-library.md).
+Node 端自己找齐这个库 —— DSH home、`~/.agents`、各工作区的 `.dsh/skills` 与
+`.agents/skills`、vendor 与扩展目录，再加上宿主技能注册表知道的部分 —— 并从每个会话日志
+里读回技能调用（普通 `.jsonl` 和逐帧追加的 `.zstd` 一样处理）。它在宿主的 web 服务上提供
+一条带鉴权的 RPC 通道 `/dsh-graph-view`，浏览器端只看得到 discovery 认过的路径。
+细节见 [docs/memory-library.md](docs/memory-library.md)。
 
-Adding this view to a DSH that is already running needs a restart: the Node half
-mounts with the host process, not with the page.
+给已经开着的 DSH 加上这个视图需要重启：Node 端跟随宿主进程挂载，不跟页面走。
 
-## Control panel
+## 控制栏
 
-Collapse it with ☰ in the page header; otherwise it stays docked left and scrolls.
-The header holds a language switch (follow the host / 中 / EN) and a **?** help card
-with the keyboard and filter cheat sheet. Open/closed sections are remembered.
+点标题栏的 ☰ 收起，其余时候它一直贴在左侧，可滚动。控制栏顶部有语言切换
+（跟随 / 中 / EN）和一个 **?** 帮助卡（快捷键与过滤语法）。各分区的展开状态会被记住。
 
-| Section | Contents |
+| 分区 | 里边有什么 |
 | --- | --- |
-| Look | the eight preset cards — a preset is a whole parameter set (theme, bloom, deep space, shell, arm shape, link curve, twinkle, orbit speed); hovering a card previews its look instantly, clicking one dissolves into it (the outgoing frame fades over the new sky while its stars grow in) |
-| Filter | one row per workspace with its colour and conversation count; click to hide, double-click to isolate; orphan and empty-workspace toggles; a filter box with Galaxy View's syntax (words ANDed, `-word` excludes, `path:` / `name:`, `"a phrase"`) |
-| Status | All / Running / Current / Subagents / Archived lenses; non-matches dim but stay clickable |
-| Colour | the seven themes, shuffle colours, node size, twinkle, and size by activity / links / uniform |
-| Links | show links switch (same as the header button; when off, a clicked conversation still shows its own links), link width (0.2–4×), link opacity, link brightness (0.3–2.5: above 1 lifts towards white, below 1 darkens, hue kept), link curve (0 straight to 2), and link colour: star colours, four swatches or a colour picker |
-| Deep space | nebula veil, field stars, cluster mist, dust lanes, shell density, shell size, shell brightness, and the starfield switch |
-| Bloom | star brightness (bodies only — links keep their own slider), bloom strength (0.5 by default: a white-hot core inside a broad soft glow), radius (the halo grows *and* keeps its peak, so a wider bloom reads as more glow) and threshold (a body blooms only above it, judged by its own size basis, so dragging right leaves just the suns) |
-| Shape | arms, twist, thickness, spread — re-solves the galaxy geometry |
-| Physics | repel, link distance, link strength, centre pull, flatten, core gravity, spiral — a live force layer over the layout |
-| Navigation | auto-orbit switch and speed, wander and its speed, selection depth (1 or 2 hops), **connect two** (pick two stars; the camera flies the shortest link path hop by hop, through both suns when they sit in different workspaces), replay intro, reset everything, save as my preset (up to 8; double-click to rename, ↑ to reorder, × asks before deleting) |
-| Advanced | quality auto / high / low / mobile (mobile turns off bloom and mist and draws at most 1500 stars) and a live `fps · ms · stars · threads · quality` line |
+| 外观 | 八张预设卡——每个预设是一整套参数（主题、辉光、深空背景、球壳、旋臂形态、连线弯曲、眨眼、环绕速度）；鼠标悬停立刻预览，点击则用 560ms 溶解过渡：旧画面淡出、新星体从核心长出 |
+| 过滤 | 每个工作区一行，带色点与对话数；单击隐藏，双击只留它；孤星、空工作区可单独放出；过滤框沿用 Galaxy View 的语法（空格分隔＝同时满足，`-词` 排除，`path:` / `name:` 限定字段，`"短语"`） |
+| 状态 | 全部 / 运行中 / 当前 / 子智能体 / 已归档 五种透镜，非命中项压暗但仍可点 |
+| 外观与配色 | 七套主题、洗牌配色、节点大小、星星眨眼，以及大小依据（活跃度 / 链接数 / 统一） |
+| 连线 | 显示连线开关（与顶栏按键同步；关闭时点击对话仍显示它的相关连线）、连线粗细（0.2–4 倍）、链接透明度、连线亮度（0.3–2.5，大于 1 提亮、小于 1 压暗，保持色相）、连线弯曲（0 直线到 2）、颜色：跟随星色、四个色块或取色器 |
+| 深空背景 | 星云天幕、空间浮星、集群云雾、尘埃带、球壳密度、球壳大小、球壳亮度，以及星空背景开关 |
+| 辉光 | 星体亮度、辉光强度、辉光范围、阈值 |
+| 形态 | 旋臂数、缠绕、厚度、散布，直接重解星系几何 |
+| 力学 | 斥力、链接距离、链接强度、向心力、扁平度、核心引力、旋涡——叠在布局上的实时力导向层 |
+| 导航与动效 | 自动环绕开关 ＋ 速度、巡游及巡游速度、关联深度（1 或 2 层）、**连接两篇**（点选两颗星，镜头沿最短链接路径逐跳飞过去；两颗星不在同一工作区时经由各自的工作区）、重播开场动画、全部重置、存为我的预设（最多 8 个；双击改名，↑ 调整顺序，× 删除前会确认） |
+| 高级 | 质量 自动 / 高 / 低 / 移动（移动档关闭辉光与云雾，最多绘制 1500 颗星），底部一行实时 `fps · ms · 星数 · 丝数 · 质量` |
 
-Every slider shows a notch at its default (the active preset's value when the
-preset owns it); double-click the slider or its label to go back. Each section
-header says which preset set it, shows **customised** once you change it, and
-offers **↺ Restore** for just that section.
+每条滑杆上都有一个默认值刻度（当前预设拥有的参数取预设值）；双击滑杆或滑杆名即可回到默认。
+每个分区标题会注明「由『某预设』设定」，改动后显示「已自定义」，并提供只还原这一分区的「↺ 还原」。
 
-Auto-orbit cruises at Galaxy View's rate — one revolution takes about five minutes — and the panel
-scales it 0.2×–3×. Hovering a star parks the drift so the target cannot slip away.
-Every setting persists in `localStorage`.
+自动环绕按 Galaxy View 的巡航速度（约 5 分钟一圈），控制栏里 0.2×–3× 可调；鼠标停在星点上时
+环绕会暂停，不会从指针底下溜走。所有设置都写进 `localStorage`。
 
-**Settings migration.** The look changed enough that old visual settings would
-hide it, so settings carry a version (now 3). On the first load after upgrading,
-the visual keys (preset, layout, theme, sliders, shape, physics, orbit speed,
-quality) reset once to the new defaults. Your filters are kept: hidden
-workspaces, the isolated workspace, filter text, status lens, the orphan and
-empty toggles, the auto-orbit/wander switches, the language, the panel width
-and sections, and the selection depth.
+**设置迁移。** 画面改动大到旧的外观设置会把新效果盖住，所以设置带上了版本号
+（现为 3）。升级后首次加载时，外观项（预设、布局、主题、各滑杆、形态、力学、
+环绕速度、质量）会一次性重置为新默认值。你的筛选全部保留：隐藏的工作区、
+「只留它」、过滤文本、状态透镜、孤星与空工作区开关、自动环绕与巡游开关，
+以及语言、控制栏宽度与分区展开状态、关联深度。
 
-## Development
+## 开发
 
 ```bash
-npm run check     # build (with a syntax gate) + selfcheck
+npm run check     # build（同时做语法门禁）+ selfcheck
 ```
 
-- `src/settings.js` — pure look data: presets, themes, defaults and the
-  settings-version migration. No DOM, so selfcheck imports it directly.
-- `src/graph-model.js` — pure: workspaces/sessions → nodes and links, the eight
-  layouts (`placeFolder` / `placeDust` / `layoutGuides`), the sky-shell, field
-  and drift grain sets, the filter syntax, the mobile node cap, shortest paths,
-  camera basis and perspective projection. Deterministic: one FNV-1a hash with a
-  murmur3 finaliser derives every random stream.
-- `src/physics.js` — pure: the force layer behind the seven physics sliders,
-  anchored to the analytic layout so the defaults settle on it.
-- `src/stars.js` — the Galaxy View node recipe in Canvas 2D: the disc profile,
-  plateau colours, halo alphas, the link tint, and the cached sprite bakers.
-- `src/client.js` — React + Canvas 2D: the render loop (nebula haze → shell →
-  dust → guides → links → stars → labels), pointer interaction, the dive tweens
-  and the control panel.
-- `src/warp.js` — the enter-the-star transition overlay.
-- `src/styles.css` — the panel UI, the star interior glow and the back capsule.
-- `scripts/build.mjs` — inlines the sources into `lib/client.js` inside
-  `window.__ModuleLoader__.load({ id, factory })`, no bundler, and gates the
-  output on `node --check`.
-- `scripts/selfcheck.mjs` — geometry, camera, migration, i18n parity, packaging
-  and bundle locks (4410 spiral dust grains, TDZ ordering, no `children` on the
-  main slot, …).
+- `src/settings.js` — 纯外观数据：预设、主题、默认值与设置版本迁移。
+  不碰 DOM，selfcheck 直接 import 它。
+- `src/graph-model.js` — 纯函数：工作区/会话 → 星体与连线、八种布局
+  （`placeFolder` / `placeDust` / `layoutGuides`）、球壳、场内浮星与空间浮星颗粒集、
+  过滤语法、移动档节点上限、最短路径、相机基与透视投影。确定性：一个 FNV-1a 哈希
+  经 murmur3 收尾派生出所有随机流。
+- `src/gpu.js` — 手写 WebGL2 `POINTS` 通道：全体星体一次绘制、全体光晕再一次绘制（约 200 行，无 three.js 依赖），失败即回落到 Canvas 2D。
+- `src/memory.js` — 纯函数：记忆库的图（指令文件、技能、调用记录）与它的环/臂布局。
+- `src/physics.js` — 纯函数：七条力学滑杆背后的力导向层，锚定在解析布局上，
+  默认参数下收敛回布局本身。
+- `src/stars.js` — Galaxy View 星体配方在 Canvas 2D 上的翻译：圆盘轮廓、
+  平台色、光晕透明度、连线调色，以及全部缓存好的精灵烘焙器。
+- `src/client.js` — React + Canvas 2D：渲染循环（星云雾 → 球壳 → 星尘 →
+  骨架 → 连线 → 星点 → 标签）、指针交互、俯冲补间与控制栏。
+- `src/warp.js` — 进入星体的过场覆盖层。
+- `src/styles.css` — 面板 UI、星体内壁光晕与返回胶囊。
+- `scripts/build.mjs` — 把各源码内联进 `lib/client.js`，包一层
+  `window.__ModuleLoader__.load({ id, factory })`，不依赖任何打包器，
+  并对产物做 `node --check` 门禁。
+- `scripts/selfcheck.mjs` — 几何、相机、迁移、双语对照、打包与产物锁
+  （4410 颗螺旋星尘、TDZ 顺序、main 槽位不得声明 `children`……）。
 
-### Renderer notes
+### 渲染要点
 
-- **Shell grains** are hard device-pixel squares covering the pixels a WebGL point
-  would (centres within `size/2`), at fixed CSS sizes
-  (1.2 / 2 / 3 px × *shell size*), drawn as one batched path per bucket in muted
-  tints; nothing is allocated per grain and no gradient is created per frame.
-- **Star bodies** are cached disc sprites baked at their exact device size with
-  4×4 supersampling: a rim plateau at saturation 0.7 / lightness 0.66
-  (red–orange deeper and more saturated) with the peak channel capped at 240,
-  solid to 0.9 of the radius, a white mix that falls off as `0.75·(1 − r/rd)^2.4`
-  from the centre (an emissive sphere, not a flat bead), and two fixed
-  screen-space halos (σ 3 px and σ 10 px, the inner one at `0.6·min(1, (r/3)²)`).
-- **Links** use `source-over` at one device pixel (1.5 on Retina, so they
-  stay visible); the control point is the
-  world midpoint pushed along its direction from the origin by
-  `0.32 × curve × length` (membership) or `0.18 × curve` (lineage; *link curve*
-  defaults to 0.35, 0 draws straight lines), with a perpendicular fallback near
-  the origin; the tint is the mixed endpoint hue at the reference's `s × 0.4` on a light
-  wire (`l 0.76`) at alpha 0.85 (lineage 0.95) for link opacity 0.14, scaled by the
-  slider; each preset carries Galaxy View's link opacity (0.07–0.28).
-- **Dust** on the spiral is exactly 4410 grains (3200 along the arms, 1100 in a
-  diffuse disc, 110 faint grains at the core); the other layouts fill their own
-  volume and are re-centred on their stars first.
-- **Camera:** the overview distance is `fitDistance(shellRadius, fov) × 0.86`
-  with `shellRadius = extent × 1.22`, and 回中心 / Reset use the same fit, so the
-  rim is always fully framed.
-- **Quality tiers:** low draws a third of the dust and half the stars at DPR 1,
-  mid half the dust at DPR 2, high everything; auto steps down above 19 ms frame
-  cost and back up below 14.5 ms, with 1.5 s of hysteresis. The HUD's `ms` is
-  the real headroom (fps is capped by vsync).
+- **球壳颗粒**是硬边方点，覆盖的设备像素与同尺寸 WebGL 点一致（像素中心落在 `size/2` 内），CSS 尺寸固定（1.2 / 2 / 3 px ×
+  球壳大小），按桶合批一次画完，低饱和色调；每帧不分配对象、不建渐变。
+- **星体**是按实际设备尺寸、4×4 超采样烘焙的缓存圆盘精灵：边缘平台饱和度
+  0.7、亮度 0.66（红橙色更深、更饱和）、峰值通道封顶 240，实心到半径 0.9，白色混合从
+  中心按 `0.75·(1 − r/rd)^2.4` 衰减（像自发光的球体，而不是扁平的珠子），外加两圈固定屏幕尺寸的光晕（σ 3 px 与 σ 10 px，内圈透明度
+  `0.6·min(1, (r/3)²)`）。
+- **连线**用 `source-over`、一个设备像素（Retina 上 1.5 个，免得看不见）；控制点取世界中点沿其相对
+  原点的方向推出 `0.32 × 弯曲 × 边长`（归属）或 `0.18 × 弯曲`（派生；
+  「连线弯曲」默认 0.35，0 为直线），靠近原点时退化为水平垂直方向；颜色是带一点
+  两端混色、饱和度 `s × 0.4`（同参照实现）的亮线（`l 0.76`），链接透明度 0.14 时 alpha 0.85（派生 0.95），随滑杆缩放；
+  每个预设带 Galaxy View 对应的链接透明度（0.07–0.28）。
+- **星尘**在螺旋上恰好 4410 颗（3200 沿旋臂、1100 弥散盘面、110 颗核心微尘）；
+  其余布局按自身体积铺尘，并先平移到星体质心。
+- **相机**：全景距离 = `fitDistance(球壳半径, fov) × 0.86`，
+  球壳半径 = `extent × 1.22`；回中心与复位的取景一致，球壳边缘始终完整在画面里。
+- **质量档**：低档画 1/3 星尘、1/2 星点、DPR 1；中档一半星尘、DPR 2；高档全量。
+  自动档在帧耗时高于 19 ms 时降档、低于 14.5 ms 时升档，1.5 s 内不反复切。
+  面板底部的 `ms` 才是真正的余量（fps 会被屏幕刷新率封顶）。
 
-Zero runtime dependencies: only the loader-provided `react` plus the existing
-`ctx.slots / ctx.locale / ctx.sessions / ctx.workspaces / ctx.uiWorkspace / ctx.layout`.
+零运行时依赖：只用 loader 提供的 `react` 和既有的 `ctx.slots / ctx.locale /
+ctx.sessions / ctx.workspaces / ctx.uiWorkspace / ctx.layout`。
 
-## How it differs from Galaxy View (on purpose)
+## 与 Galaxy View 的差别（有意为之）
 
-- Nodes are **workspaces / conversations**, not note files; edges are ownership
-  and lineage, not `[[links]]`.
-- The layout is **analytic** first (per-layout placement + jitter; same data
-  always yields the same galaxy). The physics sliders drive a force layer on the
-  main thread that is anchored to that layout, so the defaults keep the preset's
-  silhouette and each slider bends it from there; it steps inside a ~4 ms budget
-  per frame and sleeps once settled.
-- The panel mirrors Galaxy View's sections but drives workspace/conversation
-  data: sessions have no tags, so the tag lens became a status lens, and there are
-  no unresolved links, ghost nodes or 2D-graph import.
-- Workspaces are separate link components (a conversation links only to its own
-  workspace), so *connect two* across workspaces flies through both suns.
-- The node look is the reference recipe — soft-edged disc with a white-hot core
-  and fixed halos — rebuilt as cached Canvas 2D sprites instead of a three.js
-  point shader, so "threshold" trades the solid core against the halo rather than
-  cutting a real luminance threshold.
+- 这里的节点是**工作区 / 会话**，不是笔记文件；连线是归属与派生，不是 `[[链接]]`。
+- 布局先是**解析式**的（按布局直接放置 + 抖动，同数据永远同样子）。「力学」
+  七条滑杆驱动一层主线程上的力导向，锚定在这个布局上：默认参数保持预设的轮廓，
+  每条滑杆从那里把它推弯；每帧约 4 ms 预算内步进，收敛后休眠。「形态」四条
+  滑杆仍然是重解一次盘面。
+- 控制栏的分区对齐了 Galaxy View，但调的是「工作区 / 对话」这套数据：会话没有
+  tag，「标签」换成状态透镜；也没有未解析链接、幽灵节点和 2D 图谱导入。
+- 每个工作区是一个独立的连通块（对话只连到自己的工作区），所以跨工作区的
+  「连接两篇」会经由两边的恒星飞过去。
+- 星体外观沿用参照配方——软边圆盘 + 白热核心 + 固定光晕——但用缓存的
+  Canvas 2D 精灵重建，而不是 three.js 的点 shader。三个辉光滑杆分工固定：
+  亮度只动星体本身（连线走「连线亮度」），强度动光晕整体，范围动光晕的尺寸
+  （同时按面积补偿亮度，否则放大只会变淡），阈值按每颗星自己的「大小依据」质量
+  决定它到底发不发光，越往右只剩最大的恒星。
 
-## Publishing
+## 发布
 
-The package is ready for the DSH community market; publishing itself is manual.
-In order:
+包已按 DSH 社区市场的要求备好；发布本身手动执行。按顺序：
 
-1. Create the public repo `dialling/dsh-graph-view` and push `main`.
-2. Add the GitHub topic `dsh-plugin`.
-3. `npm login`, then `npm publish` (`prepack` rebuilds and self-checks first).
-4. Optionally cut a `v0.3.0` GitHub release.
-5. Once the repo is at least a day old, open the market pull request against
-   `awesome-dsh-plugin/awesome-dsh-plugin`.
+1. 建公开仓库 `dialling/dsh-graph-view`，推送 `main`。
+2. 给仓库加上 GitHub topic `dsh-plugin`。
+3. `npm login`，然后 `npm publish`（`prepack` 会先重新构建并自检）。
+4. 可选：打一个 `v0.3.0` 的 GitHub Release。
+5. 仓库满一天后，向 `awesome-dsh-plugin/awesome-dsh-plugin` 提市场收录 PR。
 
-The full checklist, the ready-to-paste market entry, and how to remove the
-local dev mount before testing a market install are in
-[PUBLISHING.md](PUBLISHING.md).
+完整清单、可直接粘贴的市场条目、以及测试市场安装前如何移除本地开发挂载，
+都写在 [PUBLISHING.md](PUBLISHING.md) 里。
 
 ## License
 

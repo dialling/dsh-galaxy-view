@@ -8,7 +8,7 @@ shipped in the npm tarball.
 
 - `npm run check` is green (build with the syntax gate + selfcheck, including
   the packaging assertions).
-- `npm pack --dry-run` lists only `lib`, `locale`, both READMEs, `LICENSE`,
+- `npm pack --dry-run` lists only `lib`, `locale`, the READMEs, `LICENSE`,
   `CHANGELOG.md`, `cordis.patch.yml` and `assets/icon.svg` (about 0.3 MB).
 
 ## Checklist (in order)

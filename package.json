@@ -15,7 +15,7 @@
     "lib",
     "locale",
     "README.md",
-    "README.zh.md",
+    "README.en.md",
     "CHANGELOG.md",
     "LICENSE",
     "cordis.patch.yml",

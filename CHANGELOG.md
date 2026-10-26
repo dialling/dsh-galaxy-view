@@ -2,6 +2,12 @@
 
 ## 0.3.0 — 2026-10-26
 
+- **Docs and interface languages.** `README.md` is now the **Chinese** readme GitHub shows
+  first, with `README.en.md` for English and a `中文 · English` banner at the top of both
+  (`README.zh.md` is gone; the npm tarball ships both). The galaxy gained a **中 / EN** button in
+  its control row that flips the whole interface in one click — the panel's locale chip still
+  offers 跟随 (follow the app). `selfcheck` now asserts the two dictionaries carry the same
+  **237** keys and that no key is Chinese-only.
 - **记忆库 reverted to the approved look; only movement was added.** The last three changes to
   the memory scene are undone — the 40 fps ticker with its idle camera drift, the per-body pulse,
   the breathing haze, the drag-time dpr 1 / caption skip, and the corner control row all go. What
