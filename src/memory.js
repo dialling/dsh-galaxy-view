@@ -162,7 +162,9 @@ function buildMemoryGraph(input) {
 			description: skill.description ?? "",
 			path: skill.path ?? null,
 			readOnly: skill.readOnly !== false,
-			missing: skill.path === null,
+			// A runtime-registered skill has no file, which is not the same as a missing one.
+			registered: skill.registered === true,
+			missing: skill.path === null && skill.registered !== true,
 			copies: skill.copies ?? 1
 		};
 		nodes.push(node);

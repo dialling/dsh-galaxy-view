@@ -2,6 +2,14 @@
 
 ## 0.3.0 — 2026-10-26
 
+- **Fix: plugin-registered skills were missing from 记忆库's 技能 list.** Ponytail's optional
+  skills (`ponytail-review`, `ponytail-audit`, `ponytail-debt`, `ponytail-gain`, `ponytail-help`)
+  are registered through the host's skill service, which means **no `SKILL.md` on disk** — and the
+  listing's registry branch skipped every summary without a `path`, so the map disagreed with the
+  catalog the model actually sees. Pathless registry skills are now admitted as
+  `source: <provider>`, `registered: true`, `readOnly: true`; `memory.js` no longer calls them
+  "missing" (that stays for a skill that has call history but lost its file), and the detail card
+  says 由插件注册，没有文件 / registered by a plugin, no file.
 - **记忆库's 指令 list names the workspace instead of the word 工作区.** A project instruction
   file used to read `工作区 · 1.2 KB` no matter which project it came from. The memory graph now
   carries `doc.workspace` (the host already sends it), and `docScopeLabel` shows the folder name —

@@ -1342,6 +1342,16 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		assert.ok(fade(12) * 12 < 1.7 && fade(12) > 0.1, `twelve bodies in one cell sum to ${(fade(12) * 12).toFixed(2)}× a lone halo`);
 	}
 	assert.ok(bundle.includes("const CAPTION_WIDTHS = new Map();"), "caption widths are cached, not measured per frame");
+	// Skills a plugin registers in memory (ponytail's optional ones) have no SKILL.md; the 技能
+	// list used to drop them because the registry branch required a path.
+	{
+		const host = readFileSync(join(root, "lib", "index.js"), "utf8");
+		assert.ok(host.includes('registered: true') && host.includes('group: "skills:registered"'), "the host admits pathless registry skills");
+		assert.ok(!/if \(typeof summary\?\.path !== "string"\) continue;/.test(host), "and no longer skips them for lacking a path");
+		const memorySource = readFileSync(join(root, "src", "memory.js"), "utf8");
+		assert.ok(memorySource.includes("missing: skill.path === null && skill.registered !== true"), "a registered skill is not reported as missing");
+		assert.ok(bundle.includes('t("mem.selected.registered")'), "the card says so in words");
+	}
 // 指令列表按工作区名标注，而不是统一的「工作区」。
 assert.ok(bundle.includes("function docScopeLabel(node, t) {") && bundle.includes('basename(String(node.workspace ?? node.root ?? ""))'), "workspace-scoped docs are labelled with their workspace name");
 assert.ok(bundle.includes("docScopeLabel(node, t)") && bundle.includes("docScopeLabel(selected, t)"), "the list row and the detail card both use it");
