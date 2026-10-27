@@ -377,6 +377,43 @@ function agentBusyness(node, now) {
 	return Math.max(0, Math.min(1, 0.3 + 0.7 * activity));
 }
 
+/**
+ * 回归: when an agent stops working it glides from the track back to its seat instead of
+ * teleporting. `RETURN_SECONDS` is short enough to read as "done" and long enough to follow the
+ * body; the position is an ease-out so it arrives softly, not braking at the last frame.
+ */
+const RETURN_SECONDS = 0.85;
+
+function startAgentReturn(node, seconds) {
+	node.returningFrom = { x: node.x, y: node.y, z: node.z };
+	node.returningTo = node.seat ?? { x: 0, y: 0, z: 0 };
+	node.returningAt = seconds;
+	node.agentOrbit = false;
+}
+
+function stepAgentReturns(galaxy, seconds) {
+	if (galaxy === null) return;
+	for (const node of galaxy.nodes) {
+		if (node.returningFrom === undefined) continue;
+		const t = Math.min(1, (seconds - node.returningAt) / RETURN_SECONDS);
+		const ease = 1 - Math.pow(1 - t, 3);
+		const from = node.returningFrom;
+		const to = node.returningTo;
+		node.x = from.x + (to.x - from.x) * ease;
+		node.y = from.y + (to.y - from.y) * ease;
+		node.z = from.z + (to.z - from.z) * ease;
+		node.agentReturn = 1 - ease;
+		if (t >= 1) {
+			node.returningFrom = undefined;
+			node.returningTo = undefined;
+			node.returningAt = undefined;
+			node.agentReturn = undefined;
+			node.seat = undefined;
+			delete node.agentBusy;
+		}
+	}
+}
+
 /** Points of the agents' great circle, for the single-agent light band. */
 function agentTrackPoints(shellRadius, segments = 96) {
 	if (!(shellRadius > 0)) return [];
@@ -404,6 +441,8 @@ function orbitAgents(galaxy, seconds, shellRadius, now = Date.now()) {
 		// 忙碌程度: drives both how fast it laps and how bright its pulse is.
 		const busy = agentBusyness(node, now);
 		node.agentBusy = busy;
+		// The seat it leaves: the return animation glides back to this, not to a re-laid-out spot.
+		if (node.seat === undefined) node.seat = { x: node.x, y: node.y, z: node.z };
 		const angle = node.agentPhase + seconds * AGENT_SPEED * (0.55 + 0.9 * busy);
 		const cos = Math.cos(angle);
 		const sin = Math.sin(angle);
@@ -1871,6 +1910,9 @@ export {	ARMS,
 	HUES,
 	AGENT_ORBIT,
 	AGENT_SPEED,
+	RETURN_SECONDS,
+	startAgentReturn,
+	stepAgentReturns,
 	agentTrackPoints,
 	orbitAgents,
 	SPOKE_CAP,

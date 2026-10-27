@@ -691,6 +691,9 @@ function glowLayerFor(state, canvas) {
 	return layer;
 }
 
+/** Samples kept per agent for the 拖尾: ~1 s at 60 fps with the 0.004 step guard. */
+const AGENT_TRAIL = 22;
+
 const CAPTION_WIDTHS = new Map();
 function captionWidth(context, text, size, weight) {
 	const key = `${weight}|${size}|${text}`;
@@ -1874,7 +1877,35 @@ function stepScene(state, delta) {
 	if (settings.layout === "sphere" && state.galaxy !== null) orbitSphere(state.galaxy, state.time);
 	// 巡飞的 Agent: a session that is working right now circles outside the shell in every layout,
 	// so "who is busy" is visible from the overview without reading a single label.
-	if (state.galaxy !== null) orbitAgents(state.galaxy, state.time, state.shellRadius, Date.now());
+	if (state.galaxy !== null) {
+		// 回归: an agent that stopped working glides from the track back to its seat. Detected here
+		// because only the frame loop sees the transition.
+		const flying = state.flyingAgents ?? (state.flyingAgents = new Set());
+		for (const node of state.galaxy.nodes) {
+			if (node.running === true) {
+				flying.add(node.id);
+			} else if (flying.delete(node.id) && node.agentOrbit === true) {
+				startAgentReturn(node, state.time);
+			}
+		}
+		orbitAgents(state.galaxy, state.time, state.shellRadius, Date.now());
+		stepAgentReturns(state.galaxy, state.time);
+		// 拖尾: keep the last second of each track so the body draws its own light behind it.
+		const trail = state.agentTrails ?? (state.agentTrails = new Map());
+		for (const node of state.galaxy.nodes) {
+			if (node.agentOrbit !== true) {
+				trail.delete(node.id);
+				continue;
+			}
+			const path = trail.get(node.id) ?? [];
+			const last = path[path.length - 1];
+			if (last === undefined || Math.hypot(node.x - last.x, node.y - last.y, node.z - last.z) > 0.004) {
+				path.push({ x: node.x, y: node.y, z: node.z });
+				if (path.length > AGENT_TRAIL) path.shift();
+			}
+			trail.set(node.id, path);
+		}
+	}
 	// 只有 1 个 Agent 时给它一条光带：一颗在空荡荡的壳外绕圈，不画出轨道就看不出它在动什么。
 	let agents = 0;
 	if (state.galaxy !== null) for (const node of state.galaxy.nodes) if (node.running === true) agents += 1;
@@ -2786,6 +2817,30 @@ function renderScene(canvas, state) {
 			}
 			context.stroke();
 		}
+		context.globalAlpha = 1;
+	}
+
+	// 公转拖尾: the last second of each agent's path, fading towards the tail. Canvas has no
+	// per-vertex alpha, so it is stroked as a handful of segments with a falling alpha.
+	if (state.agentTrails !== undefined && state.agentTrails.size > 0 && reveal > 0.15) {
+		context.globalCompositeOperation = "lighter";
+		context.lineCap = "round";
+		for (const path of state.agentTrails.values()) {
+			if (path.length < 2) continue;
+			for (let index = 1; index < path.length; index += 1) {
+				const from = projectPoint(path[index - 1], basis, viewport);
+				const to = projectPoint(path[index], basis, viewport);
+				if (from === null || to === null) continue;
+				const share = index / path.length;
+				context.strokeStyle = `rgba(206, 230, 242, ${(0.32 * share * share).toFixed(3)})`;
+				context.lineWidth = 0.6 + 1.6 * share;
+				context.beginPath();
+				context.moveTo(from.x, from.y);
+				context.lineTo(to.x, to.y);
+				context.stroke();
+			}
+		}
+		context.globalCompositeOperation = "source-over";
 		context.globalAlpha = 1;
 	}
 

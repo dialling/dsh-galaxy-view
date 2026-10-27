@@ -2,6 +2,15 @@
 
 ## 0.3.0 — 2026-10-26
 
+- **回归动画 + 公转拖尾, and the patch file is now checked.** When an agent stops working it no
+  longer teleports: `startAgentReturn` remembers the track position and the seat it left, and
+  `stepAgentReturns` eases it home over **0.85 s** (`1 − (1−t)³`; measured 1.018 → 0.621 → 0.645 →
+  0.806 → 0.878 radius, landing exactly on the seat). Each agent also keeps its last ~1 s of path
+  (`AGENT_TRAIL = 22` samples) and draws it as fading, narrowing segments in additive blend — the
+  tail is drawn before the Links section, so the link pass stays strictly non-additive.
+  Also: `cordis.patch.yml` cannot be read by a plain YAML parser (it uses `!!js` tags), so
+  `selfcheck` now asserts its shape — exactly one insert row, `id`/`name` = `dsh-galaxy-view`, and
+  `dsh.bundle.patch` / `dsh.client.platform` wiring — instead of failing at the parser.
 - **A single agent gets a light band, and busyness changes the flight.** With exactly one working
   session the renderer paints its great circle (`agentTrackPoints`, 120 points at exactly
   1.16 × shell, alpha 0.10) just under the links — one dot orbiting otherwise empty sky told you

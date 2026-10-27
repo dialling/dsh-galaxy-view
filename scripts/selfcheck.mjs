@@ -1367,6 +1367,12 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		assert.equal(sky.nodes.find((node) => node.id === "idle").agentOrbit, undefined, "idle sessions stay in their seats");
 		assert.ok(bundle.includes("const blink = node.running === true") && bundle.includes("3.4 + 4.6 * busy"), "with a busyness-driven blink on body, lift and halo");
 		assert.ok(bundle.includes("if (a.running === true || b.running === true) return false;"), "a flying agent keeps no threads");
+		// 回归: a finished agent glides home instead of teleporting.
+		assert.ok(bundle.includes("const RETURN_SECONDS = 0.85;") && bundle.includes("function startAgentReturn("), "the return glide exists");
+		assert.ok(clientSource.includes("startAgentReturn(node, state.time)") && clientSource.includes("stepAgentReturns(state.galaxy, state.time)"), "and the frame loop starts and steps it");
+		// 拖尾: the last second of the track, drawn as fading segments.
+		assert.ok(bundle.includes("const AGENT_TRAIL = 22;") && clientSource.includes("state.agentTrails"), "each agent keeps a trail of its own path");
+		assert.ok(clientSource.includes("0.32 * share * share") && clientSource.includes("context.lineWidth = 0.6 + 1.6 * share"), "the tail fades and narrows");
 		// 忙碌程度 drives speed and light; a single agent gets its track painted.
 		assert.ok(bundle.includes("const busy = agentBusyness(node, now);") && bundle.includes("AGENT_SPEED * (0.55 + 0.9 * busy)"), "a busier agent laps faster");
 		assert.ok(bundle.includes("state.agentTrack = agents === 1 ? agentTrackPoints(state.shellRadius, 120) : null;"), "one agent gets a light band");
@@ -1393,6 +1399,16 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 	}
 	// The package is dsh-galaxy-view; a rename must not reset a tuned look.
 	assert.equal(JSON.parse(readFileSync(join(root, "package.json"), "utf8")).name, "dsh-galaxy-view", "package name");
+	// The patch file uses `!!js` tags, which no plain YAML parser accepts — check its shape here
+	// instead, so a rename cannot leave the manifest row behind.
+	{
+		const patch = readFileSync(join(root, "cordis.patch.yml"), "utf8");
+		const rows = [...patch.matchAll(/-\s*id:\s*(\S+)\s*\n\s*name:\s*['"]?([^'"\n]+)/g)].map((match) => ({ id: match[1], name: match[2].trim() }));
+		assert.deepEqual(rows, [{ id: "dsh-galaxy-view", name: "dsh-galaxy-view" }], "cordis.patch.yml inserts exactly this plugin");
+		const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).dsh ?? {};
+		assert.equal(manifest.bundle?.patch, "./cordis.patch.yml", "dsh.bundle points at the patch");
+		assert.equal(manifest.client?.platform, "web", "dsh.client declares the web platform");
+	}
 	assert.ok(bundle.includes("const LEGACY_KEYS = [[\"settings\", STORE_KEY]") && bundle.includes("dsh-graph-view:${suffix}"), "old storage keys are adopted once");
 	assert.ok(bundle.includes('const STORE_KEY = "dsh-galaxy-view:settings";'), "and the new keys are the ones written");
 	// Skills a plugin registers in memory (ponytail's optional ones) have no SKILL.md; the 技能
