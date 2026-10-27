@@ -1435,9 +1435,14 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		assert.ok(clientSource.includes("const agentState = state.agentState ?? (state.agentState = new Map());") && clientSource.includes("agentState.set(node.id, {"), "per-agent state is carried by id across graphs");
 		assert.ok(clientSource.includes("agentPos: { x: node.x, y: node.y, z: node.z }"), "including the position it was flying at");
 		assert.ok(bundle.includes("function startAgentReturn(node, seconds, from = null)"), "and the return can be told where to start");
+	// 锁定 must not be dropped by anything but an explicit release.
+	assert.ok(clientSource.includes("state.lockWanted = true;") && clientSource.includes("state.lockWanted = false;"), "the lock is a user intent");
+	assert.ok(clientSource.includes("if (state.lockWanted === true && state.trackId === null && state.selectedId !== null"), "and re-arms itself when something drops it");
+	// The tail is recorded across the whole flight, so it grows from the seat.
+	assert.ok(clientSource.includes("const flying = node.launchFrom !== undefined || node.agentOrbit === true || node.returningFrom !== undefined;"), "the tail records launch, lap and return");
 		assert.ok(bundle.includes("node.agentStretch = Math.sin(Math.PI * t);"), "and both travel legs stretch on the same sine curve");
 		assert.ok(bundle.includes("node.agentStretch = 0.10 + 0.05 * Math.sin(seconds * 2.3 + node.agentPhase);"), "cruising keeps a small breathing stretch");
-		assert.ok(clientSource.includes("if (stretch > 0.03)") && clientSource.includes("context.rotate(heading)") && clientSource.includes("const along = entry.dot * (1 + 1.15 * stretch)"), "the body is drawn as a rotated drop");
+		assert.ok(clientSource.includes("if (stretch > 0.03)") && clientSource.includes("context.rotate(heading)") && clientSource.includes("const along = Math.max(entry.dot * (1 + 1.15 * stretch), across * 1.35)"), "the body is drawn as a rotated drop");
 		{
 			// stretch peaks mid-flight and returns to the cruise value at both ends
 			const now = Date.now();
@@ -1466,7 +1471,7 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		assert.ok(clientSource.includes("peak * share * share") && clientSource.includes("starPlateau(node?.hue ?? 200") && clientSource.includes("AGENT_TRAIL_MIN + (AGENT_TRAIL_MAX - AGENT_TRAIL_MIN) * busyNow"), "the tail fades, narrows, wears the body colour and grows with the work");
 		// 忙碌程度 drives speed and light; a single agent gets its track painted.
 		assert.ok(bundle.includes("const busy = agentBusyness(node, now);") && bundle.includes("AGENT_SPEED * (0.55 + 0.9 * busy)"), "a busier agent laps faster");
-		assert.ok(bundle.includes("state.agentTrack = agents === 1 ? agentTrackPoints(state.shellRadius, 120) : null;"), "one agent gets a light band");
+		assert.ok(!bundle.includes("state.agentTrack"), "no static orbit band: the tail is the real path, not a ring drawn from the start");
 		{
 			const now = Date.now();
 			const busyOf = (secondsAgo) => {

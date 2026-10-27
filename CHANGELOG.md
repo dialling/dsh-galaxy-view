@@ -2,6 +2,15 @@
 
 ## 0.3.0 — 2026-10-26
 
+- **拖尾 now grows with the body; 锁定 is sticky.** (1) The faint ring you saw first was the
+  *static orbit band* (`agentTrack`) — a full circle drawn as soon as one agent existed, before the
+  body had even left. It is gone. The tail now records the **whole flight** (`launchFrom`,
+  `agentOrbit` or `returningFrom`), so it starts at the seat and grows outwards with the body,
+  carries round the lap, and retracts on the way home. (2) 锁定 was still being dropped by paths I
+  could not pin down, so it is now an explicit **intent** (`state.lockWanted`): `trackNodeById`
+  sets it, `releaseTrack()` — the only thing that clears it — unsets it, and the frame loop
+  re-arms the lock from the selection if anything else nulls `trackId`. A silent release can no
+  longer leave the camera back at the overview.
 - **Fix: the drop read as two blobs, and 锁定 released itself.** (1) The shape was an ellipse body
   plus a separate head circle, and the head was *wider* than the oval, so it looked like two balls
   stuck together. It is now **one closed path**: a circular head at the nose with two tangent flanks
