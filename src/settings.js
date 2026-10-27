@@ -13,7 +13,8 @@ import { LAYOUTS } from "./graph-model.js";
  * filters and has every visual key reset to {@link DEFAULTS} once.
  */
 /**
- * 16: 高性能渲染 toggle (GPU 星体) added; 15: 矩阵's links are thinner (连线粗细 0.85 → 0.6, −30%); 14: 太阳系 no longer draws 集群云雾 (the cloud billboards were baked at the old planet
+ * 17: 集群云雾 is off in every preset (the orange cloud read as a stray blob that did not
+ * follow the star it belonged to); 16: 高性能渲染 toggle (GPU 星体) added; 15: 矩阵's links are thinner (连线粗细 0.85 → 0.6, −30%); 14: 太阳系 no longer draws 集群云雾 (the cloud billboards were baked at the old planet
  * positions and stayed behind as coloured ghosts once the orbits moved); 13: 方阵's 集群云雾 drops to 0.37 (was 0.52); 12: every preset's 辉光强度 drops a notch (0.5 → 0.38, 极简 0.42 → 0.34, 太阳系 0.34 →
  * 0.28) because the glow read as a little too bright; 11: 太阳系's glow is calmer (辉光强度 0.34, 阈值 0.3) so a moon cluster no longer burns
  * into one white blob; 10: the daylight mode is gone (`visual` removed); 极简 is the **spherical rings** (星环's concentric circles wrapped onto a wireframe globe,
@@ -21,7 +22,7 @@ import { LAYOUTS } from "./graph-model.js";
  * what makes an *existing* install pick this up: an upgrade resets every non-preserved key to
  * `DEFAULTS`.
  */
-const SETTINGS_VERSION = 16;
+const SETTINGS_VERSION = 17;
 
 /** Every theme draws on pure black; colour comes only from stars, links and world-space haze. */
 const SPACE = "#000000";
@@ -38,14 +39,14 @@ const SPACE = "#000000";
  * it does not mention stay as they were, which is what makes "自定义" meaningful.
  */
 const PRESETS = {
-	galaxy: { layout: "spiral", theme: "deepfield", brightness: 0.5, bloomStrength: 0.38, bloom: 0.58, threshold: 0.22, veil: 0.34, field: 0.7, shellSize: 1, shellGlow: 1, shellBloom: 0.5, shellBloomBlur: 1.5, mist: 0.3, dust: 0, fieldStars: 0.25, backdrop: true, arms: 2, twist: 4.3, thickness: 1, spread: 1, nodeSize: 1, linkWidth: 0.85, linkColor: "auto", linkOpacity: 0.19, linkBrightness: 1.05, linkCurve: 0.72, showLinks: true, twinkle: 0.5, orbitSpeed: 0.35 },
-	rings: { layout: "rings", theme: "sunset", brightness: 0.5, bloomStrength: 0.38, bloom: 0.58, threshold: 0.22, veil: 0.2, field: 0.5, shellSize: 1, shellGlow: 0.85, shellBloom: 0.5, shellBloomBlur: 1.5, mist: 0.15, dust: 0, fieldStars: 0.1, backdrop: true, arms: 1, twist: 1.3, thickness: 0.5, spread: 1.2, nodeSize: 1, linkWidth: 0.85, linkColor: "auto", linkOpacity: 0.19, linkBrightness: 1.05, linkCurve: 0.72, showLinks: false, twinkle: 0.5, orbitSpeed: 0.4 },
-	deepfield: { layout: "sphere", theme: "deepfield", brightness: 0.5, bloomStrength: 0.34, bloom: 0.5, threshold: 0.3, veil: 0, field: 0.5, shellSize: 1, shellGlow: 0.85, shellBloom: 0.5, shellBloomBlur: 1.5, mist: 0.34, dust: 0, fieldStars: 0, backdrop: false, arms: 2, twist: 3, thickness: 1, spread: 1, nodeSize: 0.85, linkWidth: 0.8, linkColor: "auto", linkOpacity: 0.2, linkBrightness: 1.05, linkCurve: 0.3, showLinks: true, twinkle: 0.3, orbitSpeed: 0.22 },
+	galaxy: { layout: "spiral", theme: "deepfield", brightness: 0.5, bloomStrength: 0.38, bloom: 0.58, threshold: 0.22, veil: 0.34, field: 0.7, shellSize: 1, shellGlow: 1, shellBloom: 0.5, shellBloomBlur: 1.5, mist: 0, dust: 0, fieldStars: 0.25, backdrop: true, arms: 2, twist: 4.3, thickness: 1, spread: 1, nodeSize: 1, linkWidth: 0.85, linkColor: "auto", linkOpacity: 0.19, linkBrightness: 1.05, linkCurve: 0.72, showLinks: true, twinkle: 0.5, orbitSpeed: 0.35 },
+	rings: { layout: "rings", theme: "sunset", brightness: 0.5, bloomStrength: 0.38, bloom: 0.58, threshold: 0.22, veil: 0.2, field: 0.5, shellSize: 1, shellGlow: 0.85, shellBloom: 0.5, shellBloomBlur: 1.5, mist: 0, dust: 0, fieldStars: 0.1, backdrop: true, arms: 1, twist: 1.3, thickness: 0.5, spread: 1.2, nodeSize: 1, linkWidth: 0.85, linkColor: "auto", linkOpacity: 0.19, linkBrightness: 1.05, linkCurve: 0.72, showLinks: false, twinkle: 0.5, orbitSpeed: 0.4 },
+	deepfield: { layout: "sphere", theme: "deepfield", brightness: 0.5, bloomStrength: 0.34, bloom: 0.5, threshold: 0.3, veil: 0, field: 0.5, shellSize: 1, shellGlow: 0.85, shellBloom: 0.5, shellBloomBlur: 1.5, mist: 0, dust: 0, fieldStars: 0, backdrop: false, arms: 2, twist: 3, thickness: 1, spread: 1, nodeSize: 0.85, linkWidth: 0.8, linkColor: "auto", linkOpacity: 0.2, linkBrightness: 1.05, linkCurve: 0.3, showLinks: true, twinkle: 0.3, orbitSpeed: 0.22 },
 	system: { layout: "system", theme: "solar", brightness: 0.5, bloomStrength: 0.28, bloom: 0.58, threshold: 0.3, veil: 0.3, field: 0.45, shellSize: 1, shellGlow: 0.85, shellBloom: 0.5, shellBloomBlur: 1.5, mist: 0, dust: 0.34, fieldStars: 0.12, backdrop: true, arms: 2, twist: 3, thickness: 1, spread: 1, nodeSize: 1, linkWidth: 0.85, linkColor: "auto", linkOpacity: 0.19, linkBrightness: 1.05, linkCurve: 0.72, showLinks: true, twinkle: 0.5, orbitSpeed: 0.24 },
-	helix: { layout: "helix", theme: "cyber", brightness: 0.5, bloomStrength: 0.38, bloom: 0.58, threshold: 0.22, veil: 0.18, field: 0.48, shellSize: 1, shellGlow: 0.85, shellBloom: 0.5, shellBloomBlur: 1.5, mist: 0.3, dust: 0, fieldStars: 0.3, backdrop: true, arms: 2, twist: 4, thickness: 1.1, spread: 1, nodeSize: 1, linkWidth: 0.85, linkColor: "auto", linkOpacity: 0.19, linkBrightness: 1.05, linkCurve: 0.72, showLinks: true, twinkle: 0.5, orbitSpeed: 0.32 },
+	helix: { layout: "helix", theme: "cyber", brightness: 0.5, bloomStrength: 0.38, bloom: 0.58, threshold: 0.22, veil: 0.18, field: 0.48, shellSize: 1, shellGlow: 0.85, shellBloom: 0.5, shellBloomBlur: 1.5, mist: 0, dust: 0, fieldStars: 0.3, backdrop: true, arms: 2, twist: 4, thickness: 1.1, spread: 1, nodeSize: 1, linkWidth: 0.85, linkColor: "auto", linkOpacity: 0.19, linkBrightness: 1.05, linkCurve: 0.72, showLinks: true, twinkle: 0.5, orbitSpeed: 0.32 },
 	minimal: { layout: "web", theme: "matrix", brightness: 0.5, bloomStrength: 0.38, bloom: 0.58, threshold: 0.22, veil: 0, field: 0.5, shellSize: 1, shellGlow: 0.85, shellBloom: 0.5, shellBloomBlur: 1.5, mist: 0, dust: 0, fieldStars: 0, backdrop: false, arms: 2, twist: 3, thickness: 1, spread: 1, nodeSize: 1, linkWidth: 0.6, linkColor: "#5a9a40", linkOpacity: 0.19, linkBrightness: 1.05, linkCurve: 0.72, showLinks: true, twinkle: 0.5, orbitSpeed: 0.28 },
-	plate: { layout: "plate", theme: "hubble", brightness: 0.5, bloomStrength: 0.38, bloom: 0.58, threshold: 0.22, veil: 0.08, field: 0.45, shellSize: 0.85, shellGlow: 0.8, shellBloom: 0.5, shellBloomBlur: 1.5, mist: 0.37, dust: 0, fieldStars: 0.1, backdrop: true, arms: 2, twist: 3, thickness: 1, spread: 0.8, nodeSize: 1, linkWidth: 0.85, linkColor: "auto", linkOpacity: 0.19, linkBrightness: 1.05, linkCurve: 0.72, showLinks: true, twinkle: 0.5, orbitSpeed: 0.22 },
-	tree: { layout: "tree", theme: "neon", brightness: 0.5, bloomStrength: 0.38, bloom: 0.58, threshold: 0.22, veil: 0.22, field: 0.48, shellSize: 1, shellGlow: 0.85, shellBloom: 0.5, shellBloomBlur: 1.5, mist: 0.552, dust: 0, fieldStars: 0.2, backdrop: true, arms: 2, twist: 3.6, thickness: 1, spread: 1, nodeSize: 1, linkWidth: 0.85, linkColor: "auto", linkOpacity: 0.19, linkBrightness: 1.05, linkCurve: 0.72, showLinks: true, twinkle: 0.5, orbitSpeed: 0.3 }
+	plate: { layout: "plate", theme: "hubble", brightness: 0.5, bloomStrength: 0.38, bloom: 0.58, threshold: 0.22, veil: 0.08, field: 0.45, shellSize: 0.85, shellGlow: 0.8, shellBloom: 0.5, shellBloomBlur: 1.5, mist: 0, dust: 0, fieldStars: 0.1, backdrop: true, arms: 2, twist: 3, thickness: 1, spread: 0.8, nodeSize: 1, linkWidth: 0.85, linkColor: "auto", linkOpacity: 0.19, linkBrightness: 1.05, linkCurve: 0.72, showLinks: true, twinkle: 0.5, orbitSpeed: 0.22 },
+	tree: { layout: "tree", theme: "neon", brightness: 0.5, bloomStrength: 0.38, bloom: 0.58, threshold: 0.22, veil: 0.22, field: 0.48, shellSize: 1, shellGlow: 0.85, shellBloom: 0.5, shellBloomBlur: 1.5, mist: 0, dust: 0, fieldStars: 0.2, backdrop: true, arms: 2, twist: 3.6, thickness: 1, spread: 1, nodeSize: 1, linkWidth: 0.85, linkColor: "auto", linkOpacity: 0.19, linkBrightness: 1.05, linkCurve: 0.72, showLinks: true, twinkle: 0.5, orbitSpeed: 0.3 }
 };
 
 /**
@@ -112,7 +113,7 @@ const DEFAULTS = {
 	/** 球壳辉光: the blurred bloom laid over the sky shell (0 = off) and its blur radius in px. */
 	shellBloom: 0.5,
 	shellBloomBlur: 1.5,
-	mist: 0.3,
+	mist: 0,
 	dust: 0,
 	fieldStars: 0.25,
 	backdrop: true,

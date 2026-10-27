@@ -795,12 +795,12 @@ assert.ok(clientSource.includes('event.key === "ArrowLeft"') && clientSource.inc
 assert.ok(clientSource.includes('node.kind === "doc" ? 0.33 : 0.462'), "settled: 记忆库's body glow, +10% as asked");
 
 /* ── settings v4: the shipped look moved to the near-white wire + wide bloom ── */
-assert.equal(SETTINGS_VERSION, 16, "settings version 16: the GPU-bodies switch reaches existing installs");
+assert.equal(SETTINGS_VERSION, 17, "settings version 17: 集群云雾 off reaches existing installs");
 assert.equal(DEFAULTS.gpuGlow, true, "GPU bodies are on by default");
 assert.equal(PRESETS.minimal.linkWidth, 0.6, "矩阵 draws its links at 0.6, 30% below 银河's 0.85");
 assert.equal(PRESETS.system.mist, 0, "太阳系 draws no cluster clouds");
 assert.equal(PRESETS.system.veil, 0.3, "and gets 星云天幕 0.3 instead, so it still has depth");
-assert.equal(PRESETS.plate.mist, 0.37, "方阵 clusters at 0.37");
+assert.ok(Object.values(PRESETS).every((preset) => preset.mist === 0), "集群云雾 is off in every preset");
 assert.equal(PRESETS.system.bloomStrength, 0.28, "太阳系 blooms at 0.28, not 0.5");
 assert.equal(PRESETS.galaxy.bloomStrength, 0.38, "and every other preset sits at 0.38");
 assert.equal(PRESETS.system.threshold, 0.3, "and only the brightest moons bloom");
@@ -1383,6 +1383,11 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		assert.ok(bundle.includes("if (a.running === true || b.running === true) return false;"), "a flying agent keeps no threads");
 		// 水滴形: launch/return stretch the body along its motion; cruising keeps a small breathing one.
 		assert.ok(bundle.includes("const LAUNCH_SECONDS = 0.7;") && bundle.includes("function stepAgentLaunches("), "the exit is a flight, not a pop");
+		// 回归 across a rebuild: the finished session arrives as a new node object, so the glide has
+		// to be carried by id and start from the remembered track position.
+		assert.ok(clientSource.includes("const agentState = state.agentState ?? (state.agentState = new Map());") && clientSource.includes("agentState.set(node.id, {"), "per-agent state is carried by id across graphs");
+		assert.ok(clientSource.includes("agentPos: { x: node.x, y: node.y, z: node.z }"), "including the position it was flying at");
+		assert.ok(bundle.includes("function startAgentReturn(node, seconds, from = null)"), "and the return can be told where to start");
 		assert.ok(bundle.includes("node.agentStretch = Math.sin(Math.PI * t);"), "and both travel legs stretch on the same sine curve");
 		assert.ok(bundle.includes("node.agentStretch = 0.10 + 0.05 * Math.sin(seconds * 2.3 + node.agentPhase);"), "cruising keeps a small breathing stretch");
 		assert.ok(clientSource.includes("if (stretch > 0.03)") && clientSource.includes("context.rotate(heading)") && clientSource.includes("const along = entry.dot * (1 + 1.15 * stretch)"), "the body is drawn as a rotated drop");
@@ -1408,7 +1413,7 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		}
 		// 回归: a finished agent glides home instead of teleporting.
 		assert.ok(bundle.includes("const RETURN_SECONDS = 0.85;") && bundle.includes("function startAgentReturn("), "the return glide exists");
-		assert.ok(clientSource.includes("startAgentReturn(node, state.time)") && clientSource.includes("stepAgentReturns(state.galaxy, state.time)"), "and the frame loop starts and steps it");
+		assert.ok(clientSource.includes("startAgentReturn(node, state.time, node.agentPos ?? null)") && clientSource.includes("stepAgentReturns(state.galaxy, state.time)"), "and the frame loop starts and steps it");
 		// 拖尾: the last second of the track, drawn as fading segments.
 		assert.ok(bundle.includes("const AGENT_TRAIL_MAX = 42;") && clientSource.includes("state.agentTrails"), "each agent keeps a trail of its own path");
 		assert.ok(clientSource.includes("peak * share * share") && clientSource.includes("starPlateau(node?.hue ?? 200") && clientSource.includes("AGENT_TRAIL_MIN + (AGENT_TRAIL_MAX - AGENT_TRAIL_MIN) * busyNow"), "the tail fades, narrows, wears the body colour and grows with the work");

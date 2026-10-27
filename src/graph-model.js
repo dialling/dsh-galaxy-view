@@ -423,8 +423,10 @@ function stepAgentLaunches(galaxy, seconds, shellRadius) {
 	}
 }
 
-function startAgentReturn(node, seconds) {
-	node.returningFrom = { x: node.x, y: node.y, z: node.z };
+function startAgentReturn(node, seconds, from = null) {
+	// `from` lets a caller hand over where the body actually was: after a graph rebuild the node
+	// object sits at its layout seat again, so its own x/y/z is not the track.
+	node.returningFrom = from ?? { x: node.x, y: node.y, z: node.z };
 	node.returningTo = node.seat ?? { x: 0, y: 0, z: 0 };
 	node.returningAt = seconds;
 	node.agentOrbit = false;

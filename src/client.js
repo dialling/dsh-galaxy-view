@@ -1883,31 +1883,61 @@ function stepScene(state, delta) {
 	// 巡飞的 Agent: a session that is working right now circles outside the shell in every layout,
 	// so "who is busy" is visible from the overview without reading a single label.
 	if (state.galaxy !== null) {
-		// 回归: an agent that stopped working glides from the track back to its seat. Detected here
-		// because only the frame loop sees the transition.
+		// 回归 must survive a rebuild: the session that just finished arrives as a NEW node object
+		// (a fresh graph), which used to drop its return state and make the body pop away instead
+		// of gliding home. Per-agent state therefore lives by id, not on the object.
+		const agentState = state.agentState ?? (state.agentState = new Map());
+		const nodes = state.galaxy.nodes;
+		for (const node of nodes) {
+			const known = agentState.get(node.id);
+			if (known !== undefined) Object.assign(node, known);
+			node.agentWasRunning = known?.running === true;
+		}
 		// 运动方向: the previous frame's position gives the velocity the drop stretches along.
-		for (const node of state.galaxy.nodes) {
+		for (const node of nodes) {
 			if (node.running === true || node.agentOrbit === true || node.returningFrom !== undefined || node.launchFrom !== undefined) {
 				node.agentPrev = { x: node.x, y: node.y, z: node.z };
 			} else if (node.agentPrev !== undefined) {
 				node.agentPrev = undefined;
 			}
 		}
-		const flying = state.flyingAgents ?? (state.flyingAgents = new Set());
-		for (const node of state.galaxy.nodes) {
+		for (const node of nodes) {
 			if (node.running === true) {
-				flying.add(node.id);
-			} else if (flying.delete(node.id) && node.agentOrbit === true) {
-				startAgentReturn(node, state.time);
-			}
-			if (node.running === true && node.agentOrbit !== true && node.launchFrom === undefined && node.seat !== undefined) {
-				// 出发: the body flies out of its seat (and stretches on the way).
-				startAgentLaunch(node, state.time);
+				if (node.agentOrbit !== true && node.launchFrom === undefined) {
+					// 出发: the body flies out of its seat (and stretches on the way).
+					if (node.seat === undefined) node.seat = { x: node.x, y: node.y, z: node.z };
+					startAgentLaunch(node, state.time);
+				}
+			} else if (node.agentWasRunning === true && node.agentOrbit === true && node.returningFrom === undefined) {
+				// 回归: work finished while it was out — start from where the body really is (after a
+				// rebuild the node object is back at its seat, so the track position comes from state).
+				startAgentReturn(node, state.time, node.agentPos ?? null);
 			}
 		}
 		orbitAgents(state.galaxy, state.time, state.shellRadius, Date.now());
 		stepAgentLaunches(state.galaxy, state.time, state.shellRadius);
 		stepAgentReturns(state.galaxy, state.time);
+		// Persist by id for the next frame — and for the next graph, which brings new node objects.
+		agentState.clear();
+		for (const node of nodes) {
+			if (node.running === true || node.agentOrbit === true || node.returningFrom !== undefined || node.launchFrom !== undefined) {
+				agentState.set(node.id, {
+					running: node.running === true,
+					agentPos: { x: node.x, y: node.y, z: node.z },
+					seat: node.seat,
+					agentPhase: node.agentPhase,
+					agentBusy: node.agentBusy,
+					agentOrbit: node.agentOrbit,
+					agentStretch: node.agentStretch,
+					launchFrom: node.launchFrom,
+					launchAt: node.launchAt,
+					returningFrom: node.returningFrom,
+					returningTo: node.returningTo,
+					returningAt: node.returningAt
+				});
+			}
+		}
+
 		// 拖尾: samples are timestamped and pruned by both count and age, so nothing from a seat,
 		// a previous flight or a pause can survive into the current one.
 		const trail = state.agentTrails ?? (state.agentTrails = new Map());

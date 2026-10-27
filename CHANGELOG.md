@@ -2,6 +2,15 @@
 
 ## 0.3.0 — 2026-10-26
 
+- **集群云雾 removed; 回归 now survives a rebuild.** (1) The orange blobs were `createClusterClouds`
+  — baked at a workspace centroid, so they never followed the star that left, which is what read as
+  a misaligned orange background. 集群云雾 is **0 in every preset** (`SETTINGS_VERSION` 17; the slider
+  stays for anyone who wants it). (2) The return animation was missing because the finished session
+  arrives as a **new node object** in a fresh graph, and its return state lived on the old object.
+  Per-agent state now lives by id (`state.agentState`), is rehydrated onto whatever node object
+  exists, and `startAgentReturn(node, seconds, from)` starts from the remembered track position —
+  measured across a real rebuild: radius **1.018 → 0.453 → 0.735 → 0.870 → 0.878**, landing on the
+  seat instead of vanishing.
 - **Fix: opening the view froze and dropped out.** `discSprite` keyed its cache on the **raw**
   diameter and lightness, and both are continuous at runtime (the depth band times 亮度, and the
   zoom's dot size). My new drop shape baked such a sprite **per frame**, so the cache grew by one
