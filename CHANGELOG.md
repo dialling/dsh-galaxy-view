@@ -2,6 +2,14 @@
 
 ## 0.3.0 — 2026-10-26
 
+- **A flying agent keeps no threads.** Links are drawn only between bodies that sit in the graph,
+  so `linkVisible` now drops any link touching a `running` node — the thread no longer stretches
+  from the shell track back to a seat the agent has left. Probed against the real source: worker ↔
+  workspace and workspace ↔ worker both hidden, two idle bodies keep theirs, contextual `lineage`
+  links keep their old rule. Also fixed while checking it: agent phases came from a hash of the id
+  and two ids ending in different letters landed **0.004 rad apart** (agents stacked on each
+  other); they now come from `index × golden angle`, so five busy sessions sit 1.03 apart on a
+  1.16-radius track.
 - **巡飞的 Agent: a working session leaves the shell and circles it, blinking.** `SessionSummary`
   already carries `running`, and the graph flagged it (`node.running`) without doing anything with
   it. Now `orbitAgents` — driven every frame for every layout, from the scene clock — moves those

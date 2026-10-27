@@ -351,6 +351,7 @@ function treePlan(folders, arms, salt) {
  * everything else" instead of as one more dot in a cluster. Blinking is the client's job (it owns
  * the frame clock); this only moves the body.
  */
+const GOLDEN_ANGLE = 2.399963229728653;
 const AGENT_ORBIT = 1.16;
 const AGENT_SPEED = 0.42;
 
@@ -371,7 +372,9 @@ function orbitAgents(galaxy, seconds, shellRadius) {
 	const { u, v } = agentBasis();
 	for (const node of galaxy.nodes) {
 		if (node.running !== true) continue;
-		if (node.agentPhase === undefined) node.agentPhase = hash01(`agent:${node.id}`) * TAU;
+		// The phase comes from the node's index, spread by the golden angle — a hash of the id
+		// put two agents 0.004 rad apart when their ids ended in the same letter.
+		if (node.agentPhase === undefined) node.agentPhase = (node.index ?? 0) * GOLDEN_ANGLE;
 		const angle = node.agentPhase + seconds * AGENT_SPEED;
 		const cos = Math.cos(angle);
 		const sin = Math.sin(angle);

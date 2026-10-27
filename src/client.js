@@ -2804,6 +2804,9 @@ function renderScene(canvas, state) {
 	// its parent) crosses the view between distant stars, so it is context — drawn only when it
 	// touches the selection or the hover.
 	const linkVisible = (link, a, b) => {
+		// 巡飞的 Agent 断线: a working session has left the graph for the shell track, so its
+		// threads would stretch from outside the shell to a seat it no longer occupies.
+		if (a.running === true || b.running === true) return false;
 		if (link.faint !== true) return true;
 		return chosen !== null ? a.id === chosen || b.id === chosen : hot !== null ? a.id === hot || b.id === hot : false;
 	};
@@ -2958,7 +2961,7 @@ function renderScene(canvas, state) {
 			const gate = bloomGate(bloomLuminance(starMass(node, settings.sizeBy, state.degree)), threshold);
 			const prox = entry.prox ?? 1;
 			const bandHalo = prox >= 0.66 ? 1 : prox >= 0.33 ? 0.55 : 0.18;
-			const gain = haloGain * pulse * emphasis * fadeOf(node) * (node.archived ? 0.55 : 1) * node._k * bandHalo * crowdFadeOf(entry) * (node.running === true ? 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(state.time * 5.2 + hash01(`blink:${node.id}`) * TAU)) : 1);
+			const gain = haloGain * pulse * emphasis * fadeOf(node) * (node.archived ? 0.55 : 1) * node._k * bandHalo * crowdFadeOf(entry) * (node.running === true ? 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(state.time * 5.2 + (node.index ?? 0) * 2.399963)) : 1);
 			const innerAlpha = Math.min(1, innerHaloAlpha(entry.dot / 2) * gain * gate * haloArea);
 			// A halo this faint is invisible but still a full-size fill: skip the draw.
 			if (innerAlpha < 0.004) continue;
@@ -3003,7 +3006,7 @@ function renderScene(canvas, state) {
 		const bandLightness = prox >= 0.66 ? bodyLightness : prox >= 0.33 ? STAR_LIGHTNESS * 0.86 : STAR_LIGHTNESS * 0.5;
 		// 闪动: an agent that is working pulses on the shell track — 0.55 … 1 of its light, a
 		// slow enough beat to read as "alive" rather than as a warning lamp.
-		const blink = node.running === true ? 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(state.time * 5.2 + hash01(`blink:${node.id}`) * TAU)) : 1;
+		const blink = node.running === true ? 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(state.time * 5.2 + (node.index ?? 0) * 2.399963)) : 1;
 		// A deep zoom pushes most bodies off the stage; skipping them here also skips the
 		// sprite bake, which is the expensive part.
 		if (entry.x < -entry.dot || entry.x > width + entry.dot || entry.y < -entry.dot || entry.y > height + entry.dot) continue;
