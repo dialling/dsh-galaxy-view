@@ -2,6 +2,13 @@
 
 ## 0.3.0 — 2026-10-26
 
+- **Fix: opening the view froze and dropped out.** `discSprite` keyed its cache on the **raw**
+  diameter and lightness, and both are continuous at runtime (the depth band times 亮度, and the
+  zoom's dot size). My new drop shape baked such a sprite **per frame**, so the cache grew by one
+  bitmap per frame — a GC storm the tab could not survive. Two changes: the drop is now drawn as a
+  **path** (ellipse body + round head + white-hot head, no bake at all), and the disc cache key is
+  **quantised** (`quantiseDiameter`, lightness to 1/100, core to 1/100), which bounds it by design
+  for every caller. Measured: 3000 continuous bakes used **340** entries instead of 3000.
 - **水滴形: the flying body deforms with its acceleration.** Exit and entry are now real flights —
   `startAgentLaunch` / `stepAgentLaunches` glide the body from its seat onto the track over
   **0.7 s** (measured: radius 0.878 → 0.532 → 1.018, i.e. it leaves the seat, crosses the

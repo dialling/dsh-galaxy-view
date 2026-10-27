@@ -1347,6 +1347,12 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		assert.ok(fade(12) * 12 < 1.7 && fade(12) > 0.1, `twelve bodies in one cell sum to ${(fade(12) * 12).toFixed(2)}× a lone halo`);
 	}
 	assert.ok(bundle.includes("const CAPTION_WIDTHS = new Map();"), "caption widths are cached, not measured per frame");
+	// The disc sprite cache is keyed on quantised values: callers pass a continuous diameter and
+	// lightness, and a literal key grew one bitmap per frame until the view froze.
+	assert.ok(bundle.includes('`${hue}|${quantiseDiameter(diameter)}|${Math.round(core * 100)}') && bundle.includes("Math.round(lightness * 100)"), "disc sprite keys are quantised");
+	assert.ok(!bundle.includes('`${hue}|${diameter}|${core}|${lightness ?? ""}'), "the unquantised key is gone");
+	// An agent in flight is drawn as a path, not a per-frame sprite bake.
+	assert.ok(clientSource.includes("context.ellipse(-along * 0.18, 0, along * 0.55, across * 0.5, 0, 0, TAU)") && !clientSource.includes("const sprite = discSprite(entry.hue, Math.max(4, Math.round(entry.dot * dprNow) / 1)"), "the drop is a path");
 	// A top-level `const` used before its declaration throws every frame and blanks the scene.
 	{
 		const declAt = clientSource.indexOf("const galaxyNodes = state.galaxy.nodes;");

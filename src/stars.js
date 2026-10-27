@@ -374,7 +374,10 @@ function quantiseDiameter(diameter) {
 }
 
 function discSprite(hue, diameter, core, lightness, tone) {
-	const key = `${hue}|${diameter}|${core}|${lightness ?? ""}|${tone ?? ""}`;
+	// The key is quantised on purpose: callers pass a continuous diameter and a continuous
+	// lightness (the depth band times 亮度), so a literal key grew the cache one bitmap per frame
+	// until the view froze. Quantising bounds it to (hue × ladder step × core × lightness step).
+	const key = `${hue}|${quantiseDiameter(diameter)}|${Math.round(core * 100)}|${lightness === undefined ? "" : Math.round(lightness * 100)}|${tone ?? ""}`;
 	const hit = DISC_CACHE.get(key);
 	if (hit !== undefined) return hit;
 	// One bitmap per ladder step, never one per zoom frame: a disc above 32 px is a smooth

@@ -3140,31 +3140,36 @@ function renderScene(canvas, state) {
 		// 完全不透明: a body is opaque whatever the band, the lens or the reveal — the shade is
 		// carried by its colour instead (band lightness, 亮度, the lens' own fade stays on links).
 		// 水滴形: an agent in flight is drawn as a stretched drop along its own motion — long while it
-		// accelerates out or home, round while it cruises (a 0.10 breathing stretch only).
+		// accelerates out or home, round while it cruises (a 0.10 breathing stretch only). Drawn as a
+		// path, not a baked sprite: a per-frame sprite keyed by a continuous size and lightness grew
+		// the sprite cache without bound and froze the view.
 		const stretch = node.agentStretch ?? 0;
 		if (stretch > 0.03) {
 			const prev = node.agentPrev;
 			const back = prev === undefined ? null : projectPoint(prev, basis, viewport);
-			// Screen-space heading from the previous frame to this one.
 			const heading = back === null ? 0 : Math.atan2(entry.y - back.y, entry.x - back.x);
 			const along = entry.dot * (1 + 1.15 * stretch);
 			const across = entry.dot * (1 - 0.34 * stretch);
-			const sprite = discSprite(entry.hue, Math.max(4, Math.round(entry.dot * dprNow) / 1), bandCore, bandLightness, entry.tone);
-			const side = sprite.size / dprNow;
+			const tint = starPlateau(entry.hue, undefined, entry.tone);
 			context.save();
 			context.translate(entry.x, entry.y);
 			context.rotate(heading);
-			context.globalAlpha = blink;
-			// The body: an ellipse stretched along the heading.
-			context.drawImage(spriteImage(sprite.canvas), (-along / 2) * (side / entry.dot), (-across / 2) * (side / entry.dot), along * (side / entry.dot), across * (side / entry.dot));
-			// The head: a smaller disc at the leading edge, so the shape reads as a drop, not an oval.
-			context.globalAlpha = Math.min(1, blink * 0.85);
-			context.drawImage(spriteImage(sprite.canvas), along * 0.18 - (entry.dot * 0.42) / 2, -entry.dot * 0.42 / 2, entry.dot * 0.42, entry.dot * 0.42);
-			// Additive rim light at the tail, the comet's tail fading backwards.
-			context.globalCompositeOperation = "lighter";
-			context.globalAlpha = Math.min(1, 0.28 * stretch * blink);
-			context.drawImage(spriteImage(sprite.canvas), -along * 0.5, -across * 0.42, along * 0.62, across * 0.84);
 			context.globalCompositeOperation = "source-over";
+			// The body: a drop — a wide rounded tail behind, a round head at the leading edge.
+			context.globalAlpha = blink;
+			context.fillStyle = `rgb(${tint[0]}, ${tint[1]}, ${tint[2]})`;
+			context.beginPath();
+			context.ellipse(-along * 0.18, 0, along * 0.55, across * 0.5, 0, 0, TAU);
+			context.fill();
+			context.beginPath();
+			context.arc(along * 0.26, 0, entry.dot * 0.5, 0, TAU);
+			context.fill();
+			// A white-hot head, so the shape reads as a drop rather than a lozenge.
+			context.globalAlpha = Math.min(1, blink * (0.35 + 0.5 * bandCore));
+			context.fillStyle = "rgba(255, 252, 244, 0.92)";
+			context.beginPath();
+			context.arc(along * 0.26, 0, entry.dot * 0.26, 0, TAU);
+			context.fill();
 			context.restore();
 			continue;
 		}
