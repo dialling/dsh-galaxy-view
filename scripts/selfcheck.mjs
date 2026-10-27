@@ -1352,7 +1352,54 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 	assert.ok(bundle.includes('`${hue}|${quantiseDiameter(diameter)}|${Math.round(core * 100)}') && bundle.includes("Math.round(lightness * 100)"), "disc sprite keys are quantised");
 	assert.ok(!bundle.includes('`${hue}|${diameter}|${core}|${lightness ?? ""}'), "the unquantised key is gone");
 	// An agent in flight is drawn as a path, not a per-frame sprite bake.
-	assert.ok(clientSource.includes("context.ellipse(-along * 0.18, 0, along * 0.55, across * 0.5, 0, 0, TAU)") && !clientSource.includes("const sprite = discSprite(entry.hue, Math.max(4, Math.round(entry.dot * dprNow) / 1)"), "the drop is a path");
+	assert.ok(clientSource.includes("context.bezierCurveTo(-tail * 0.2, -waist, noseCentre - head * 0.55, -head, noseCentre, -head)") && clientSource.includes("context.arc(noseCentre, 0, head, -Math.PI / 2, Math.PI / 2)") && clientSource.includes("context.closePath();") && !clientSource.includes("const sprite = discSprite(entry.hue, Math.max(4, Math.round(entry.dot * dprNow) / 1)"), "the drop is one closed path");
+	{
+		// Silhouette maths, not a screenshot: one closed path must be longer than tall and widest
+		// near the nose. Two separate fills (oval + circle) read as two blobs and fail this.
+		const silhouette = (stretch) => {
+			const dot = 10;
+			const along = dot * (1 + 1.15 * stretch);
+			const across = dot * (1 - 0.34 * stretch);
+			const head = across * 0.5;
+			const tail = along * 0.5;
+			const waist = across * 0.5;
+			const noseCentre = along * 0.5 - head;
+			const bez = (p0, p1, p2, p3, t) => {
+				const u = 1 - t;
+				return {
+					x: u * u * u * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * p3[0],
+					y: u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1]
+				};
+			};
+			const points = [];
+			for (let i = 0; i <= 120; i += 1) points.push(bez([-tail, 0], [-tail * 0.2, -waist], [noseCentre - head * 0.55, -head], [noseCentre, -head], i / 120));
+			for (let i = 0; i <= 60; i += 1) {
+				const a = -Math.PI / 2 + (i / 60) * Math.PI;
+				points.push({ x: noseCentre + Math.cos(a) * head, y: Math.sin(a) * head });
+			}
+			for (let i = 0; i <= 120; i += 1) points.push(bez([noseCentre, head], [noseCentre - head * 0.55, head], [-tail * 0.2, waist], [-tail, 0], i / 120));
+			const xs = points.map((point) => point.x);
+			const ys = points.map((point) => point.y);
+			const width = Math.max(...xs) - Math.min(...xs);
+			const height = Math.max(...ys) - Math.min(...ys);
+			let widest = 0;
+			let widestX = 0;
+			for (const point of points) {
+				const span = Math.abs(point.y) * 2;
+				if (span > widest) {
+					widest = span;
+					widestX = point.x;
+				}
+			}
+			return { aspect: width / height, forward: (widestX - Math.min(...xs)) / width };
+		};
+		const cruise = silhouette(0.1);
+		const flight = silhouette(1);
+		assert.ok(cruise.aspect > 1.1, `a cruising body is still a drop (aspect ${cruise.aspect.toFixed(2)})`);
+		assert.ok(flight.aspect > 3, `and a full-stretch one is long (aspect ${flight.aspect.toFixed(2)})`);
+		assert.ok(flight.forward > 0.75 && cruise.forward > 0.5, `widest near the nose (${(flight.forward * 100).toFixed(0)}% / ${(cruise.forward * 100).toFixed(0)}%)`);
+	}
+
 	// A top-level `const` used before its declaration throws every frame and blanks the scene.
 	{
 		const declAt = clientSource.indexOf("const galaxyNodes = state.galaxy.nodes;");

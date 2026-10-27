@@ -2,6 +2,15 @@
 
 ## 0.3.0 — 2026-10-26
 
+- **Fix: the drop read as two blobs, and 锁定 released itself.** (1) The shape was an ellipse body
+  plus a separate head circle, and the head was *wider* than the oval, so it looked like two balls
+  stuck together. It is now **one closed path**: a circular head at the nose with two tangent flanks
+  sweeping back to a point (`bezierCurveTo` + `arc` + `closePath`). Measured silhouette — cruise
+  **11.2 × 9.7** (aspect 1.15, widest at 57 % forward), full stretch **21.5 × 6.6** (aspect 3.26,
+  widest at 85 %). (2) 锁定 was cleared by the graph-rebuild effect (`state.trackId = null` on every
+  new graph), so when a tracked body swung to the far side and a snapshot arrived, the camera
+  bounced back to the overview. The rebuild now drops only the cached **node object** and keeps
+  `trackId` (re-resolved on the next frame) unless the subject is really gone.
 - **集群云雾 removed; 回归 now survives a rebuild.** (1) The orange blobs were `createClusterClouds`
   — baked at a workspace centroid, so they never followed the star that left, which is what read as
   a misaligned orange background. 集群云雾 is **0 in every preset** (`SETTINGS_VERSION` 17; the slider
