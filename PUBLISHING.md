@@ -1,4 +1,4 @@
-# Publishing dsh-graph-view
+# Publishing dsh-galaxy-view
 
 Everything below is manual and done by you, the maintainer. Nothing in this
 repo publishes, pushes or creates anything on its own. `PUBLISHING.md` is not
@@ -13,17 +13,17 @@ shipped in the npm tarball.
 
 ## Checklist (in order)
 
-1. **Create the public GitHub repo** `dialling/dsh-graph-view` and push:
+1. **Create the public GitHub repo** `dialling/dsh-galaxy-view` and push:
 
    ```bash
-   gh repo create dialling/dsh-graph-view --public --source . --remote origin
+   gh repo create dialling/dsh-galaxy-view --public --source . --remote origin
    git push -u origin main
    ```
 
 2. **Add the GitHub topic** `dsh-plugin` — the market requires it:
 
    ```bash
-   gh repo edit dialling/dsh-graph-view --add-topic dsh-plugin
+   gh repo edit dialling/dsh-galaxy-view --add-topic dsh-plugin
    ```
 
 3. **Publish to npm.** The market prefers a repository-verified npm package,
@@ -36,27 +36,27 @@ shipped in the npm tarball.
    ```
 
 4. **(Optional) GitHub release `v0.3.0`.** Attach the `npm pack` tarball as
-   `dsh-graph-view-0.3.0.tgz` for the tarball install path; the release notes
+   `dsh-galaxy-view-0.3.0.tgz` for the tarball install path; the release notes
    double as the market's "what changed" link.
 
 5. **Open the market pull request — at least 1 day after the repo was
    created** (market rule; younger repos are rejected). Fork
    `awesome-dsh-plugin/awesome-dsh-plugin`, add the file
-   `data/plugins/dialling__dsh-graph-view.yml` with the block below, and open
+   `data/plugins/dialling__dsh-galaxy-view.yml` with the block below, and open
    the PR (at most 3 plugin entries per PR).
 
-## Market entry: `data/plugins/dialling__dsh-graph-view.yml`
+## Market entry: `data/plugins/dialling__dsh-galaxy-view.yml`
 
 Ready to paste:
 
 ```yaml
-url: https://github.com/dialling/dsh-graph-view
-name: dialling/dsh-graph-view
+url: https://github.com/dialling/dsh-galaxy-view
+name: dialling/dsh-galaxy-view
 category: ui
 description:
   en: "Cinematic 3D galaxy graph: workspaces become suns on spiral arms, conversations become stars, with eight layouts, a warp transition into workspaces, and one header button back to the stock interface."
   zh: "把工作区与对话画成三维星系：工作区是旋臂上的恒星，对话是星点；八种布局、进入工作区的跃迁动画，顶栏一键切回原版界面。"
-icon: https://raw.githubusercontent.com/dialling/dsh-graph-view/main/assets/icon-180.png
+icon: https://raw.githubusercontent.com/dialling/dsh-galaxy-view/main/assets/icon-180.png
 ```
 
 Notes:
@@ -79,17 +79,17 @@ the dev mount first:
 1. Delete the symlink:
 
    ```bash
-   rm "$HOME/Library/Application Support/dsh-desktop/harness/profiles/web/node_modules/dsh-graph-view"
+   rm "$HOME/Library/Application Support/dsh-desktop/harness/profiles/web/node_modules/dsh-galaxy-view"
    ```
 
 2. Remove the patch row from
    `$HOME/Library/Application Support/dsh-desktop/harness/profiles/web/cordis.patch.yml`:
    delete the block that starts with the comment
-   `# dsh-graph-view: mounted from a local checkout` together with its
+   `# dsh-galaxy-view: mounted from a local checkout` together with its
    `- insert:` lines. (Or restore the `cordis.patch.yml.pre-graph-view.bak`
    backup written next to it on first install.)
 
-3. Restart DSH (or reopen the window), then install `dsh-graph-view` from the
+3. Restart DSH (or reopen the window), then install `dsh-galaxy-view` from the
    market and test.
 
 To go back to development afterwards, run

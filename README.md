@@ -1,4 +1,4 @@
-# dsh-graph-view · 银河视图
+# dsh-galaxy-view · 银河视图
 
 **中文** · [English](README.en.md)
 
@@ -18,13 +18,13 @@ fork/子智能体之间拉出细丝；相机缓慢自转，拖一下就绕轨，
 需要 **DeepSeek Harness Desktop**（含 `main` 面板槽位与 `uiWorkspace` 服务）。
 本插件是纯前端 + 一个 host 半包，没有原生依赖。
 
-**从插件市场**（发布后）：搜 `dsh-graph-view`。
+**从插件市场**（发布后）：搜 `dsh-galaxy-view`。
 
 **从 npm 装进某个 profile：**
 
 ```bash
 cd "$DSH_HOME/profiles/web"
-pnpm add dsh-graph-view        # 或者：npm install dsh-graph-view
+pnpm add dsh-galaxy-view        # 或者：npm install dsh-galaxy-view
 ```
 
 `dsh.bundle.patch` 会把插件行插进层栈；重启 Harness（或重开窗口）即可。
@@ -149,7 +149,7 @@ node scripts/install-into-profile.mjs --profile "$DSH_PROFILE_DIR"
 Node 端自己找齐这个库 —— DSH home、`~/.agents`、各工作区的 `.dsh/skills` 与
 `.agents/skills`、vendor 与扩展目录，再加上宿主技能注册表知道的部分 —— 并从每个会话日志
 里读回技能调用（普通 `.jsonl` 和逐帧追加的 `.zstd` 一样处理）。它在宿主的 web 服务上提供
-一条带鉴权的 RPC 通道 `/dsh-graph-view`，浏览器端只看得到 discovery 认过的路径。
+一条带鉴权的 RPC 通道 `/dsh-galaxy-view`，浏览器端只看得到 discovery 认过的路径。
 细节见 [docs/memory-library.md](docs/memory-library.md)。
 
 给已经开着的 DSH 加上这个视图需要重启：Node 端跟随宿主进程挂载，不跟页面走。
@@ -258,7 +258,7 @@ ctx.sessions / ctx.workspaces / ctx.uiWorkspace / ctx.layout`。
 
 包已按 DSH 社区市场的要求备好；发布本身手动执行。按顺序：
 
-1. 建公开仓库 `dialling/dsh-graph-view`，推送 `main`。
+1. 建公开仓库 `dialling/dsh-galaxy-view`，推送 `main`。
 2. 给仓库加上 GitHub topic `dsh-plugin`。
 3. `npm login`，然后 `npm publish`（`prepack` 会先重新构建并自检）。
 4. 可选：打一个 `v0.3.0` 的 GitHub Release。

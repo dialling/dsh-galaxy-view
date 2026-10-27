@@ -126,7 +126,7 @@ worker: new Worker(this.url)
 
 ## 3. 与我们实现的对照
 
-| 项 | galaxy-view | dsh-graph-view 现状 | 差距 |
+| 项 | galaxy-view | dsh-galaxy-view 现状 | 差距 |
 | --- | --- | --- | --- |
 | 球壳尺寸 | 固定 1.2/2.0/3.0 px（`sizeAttenuation: false`） | 固定 1.2/2/3 px（`SKY_CLASSES` + `paintGrainSquares`） | 已对齐 |
 | 球壳不透明度 | 0.55 | 由「球壳亮度」滑杆控制，α = `(0.5+0.5·min(1,glow))·focusPull` | 参数可再对 |

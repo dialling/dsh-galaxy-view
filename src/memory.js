@@ -13,7 +13,7 @@
 import { hash01 } from "./graph-model.js";
 
 /** The one authenticated RPC channel the Node half serves. */
-const MEMORY_CHANNEL = "/dsh-graph-view";
+const MEMORY_CHANNEL = "/dsh-galaxy-view";
 
 /**
  * 记忆库's look is SETTLED — the owner approved it (2026-10) and asked that it not be

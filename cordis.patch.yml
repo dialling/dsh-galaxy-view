@@ -2,5 +2,5 @@
 # The browser half registers itself into the stock `main` slot as the "graph"
 # panel plus one conversation-header toggle, so no existing row is touched.
 - insert:
-    - id: dsh-graph-view
-      name: 'dsh-graph-view'
+    - id: dsh-galaxy-view
+      name: 'dsh-galaxy-view'

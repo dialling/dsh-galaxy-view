@@ -2,7 +2,7 @@
  * Local development helper: mount this checkout into a running dsh profile.
  *
  * It does two idempotent things and nothing else:
- *   1. symlink `<profile>/node_modules/dsh-graph-view` → this package;
+ *   1. symlink `<profile>/node_modules/dsh-galaxy-view` → this package;
  *   2. make sure `<profile>/cordis.patch.yml` carries one insert row for it
  *      (the file is backed up before the first edit).
  *
@@ -56,7 +56,7 @@ if (existsSync(linkPath) || isLink) {
 
 const patchPath = join(profile, "cordis.patch.yml");
 const current = existsSync(patchPath) ? readFileSync(patchPath, "utf8") : "";
-const marker = "# dsh-graph-view: mounted from a local checkout";
+const marker = "# dsh-galaxy-view: mounted from a local checkout";
 let next = current;
 let patched = "already present";
 if (!current.includes(`name: '${packageName}'`) && !current.includes(`name: "${packageName}"`)) {

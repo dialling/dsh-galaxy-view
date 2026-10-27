@@ -1,4 +1,4 @@
-# dsh-graph-view · Galaxy view
+# dsh-galaxy-view · Galaxy view
 
 [中文](README.md) · **English**
 
@@ -17,13 +17,13 @@ small cool-and-warm stars, and very thin, faint links.
 
 ## Install
 
-**From the DSH plugin market** (once published): search `dsh-graph-view`.
+**From the DSH plugin market** (once published): search `dsh-galaxy-view`.
 
 **From npm into a profile:**
 
 ```bash
 cd "$DSH_HOME/profiles/web"
-pnpm add dsh-graph-view        # or: npm install dsh-graph-view
+pnpm add dsh-galaxy-view        # or: npm install dsh-galaxy-view
 ```
 
 `dsh.bundle.patch` inserts the loader row; restart the app (or reopen the window).
@@ -177,7 +177,7 @@ The Node half finds the library itself — DSH home, `~/.agents`, each workspace
 `.dsh/skills` and `.agents/skills`, vendor and extension roots, plus whatever the
 host's skill registry knows — and reads the skill calls back out of every session
 log, plain `.jsonl` and appended-frame `.zstd` alike. It serves one authenticated
-RPC channel, `/dsh-graph-view`, on the host's web server, and the browser half only
+RPC channel, `/dsh-galaxy-view`, on the host's web server, and the browser half only
 ever sees paths discovery returned. Details: [docs/memory-library.md](docs/memory-library.md).
 
 Adding this view to a DSH that is already running needs a restart: the Node half
@@ -307,7 +307,7 @@ Zero runtime dependencies: only the loader-provided `react` plus the existing
 The package is ready for the DSH community market; publishing itself is manual.
 In order:
 
-1. Create the public repo `dialling/dsh-graph-view` and push `main`.
+1. Create the public repo `dialling/dsh-galaxy-view` and push `main`.
 2. Add the GitHub topic `dsh-plugin`.
 3. `npm login`, then `npm publish` (`prepack` rebuilds and self-checks first).
 4. Optionally cut a `v0.3.0` GitHub release.

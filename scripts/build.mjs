@@ -64,7 +64,7 @@ const client = source("src/client.js").trim();
 const css = source("src/styles.css");
 
 const bundle = [
-	"// dsh-graph-view — generated client bundle. Do not edit: change src/ and run",
+	"// dsh-galaxy-view — generated client bundle. Do not edit: change src/ and run",
 	"// `node scripts/build.mjs` instead.",
 	"window.__ModuleLoader__.load({",
 	`	id: ${JSON.stringify(packageName)},`,

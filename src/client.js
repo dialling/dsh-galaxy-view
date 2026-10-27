@@ -10,9 +10,9 @@ const h = react.createElement;
 
 const NS = "graph";
 const PANEL_ID = "graph";
-const STORE_KEY = "dsh-graph-view:settings";
-const PRESET_KEY = "dsh-graph-view:presets";
-const VIEW_KEY = "dsh-graph-view:view";
+const STORE_KEY = "dsh-galaxy-view:settings";
+const PRESET_KEY = "dsh-galaxy-view:presets";
+const VIEW_KEY = "dsh-galaxy-view:view";
 const EMPTY_SESSIONS = { phase: "loading", ids: [], byId: {} };
 const EMPTY_WORKSPACES = { phase: "loading", items: [], archivedSessionIds: [] };
 
@@ -564,10 +564,28 @@ function swatchCss(hue, tone) {
 }
 
 /**
+ * The plugin was called `dsh-graph-view` before it was 银河视图; its storage keys moved with the
+ * name. Copy the old values across once so a rename does not reset a tuned look or saved presets.
+ */
+const LEGACY_KEYS = [["settings", STORE_KEY], ["presets", PRESET_KEY], ["view", VIEW_KEY]];
+function adoptLegacyStorage() {
+	try {
+		for (const [suffix, key] of LEGACY_KEYS) {
+			if (window.localStorage.getItem(key) !== null) continue;
+			const old = window.localStorage.getItem(`dsh-graph-view:${suffix}`);
+			if (old !== null) window.localStorage.setItem(key, old);
+		}
+	} catch (error) {
+		/* private mode: nothing to migrate into */
+	}
+}
+
+/**
  * Read persisted settings, ignoring anything that no longer parses. An older
  * settings version is migrated once (see migrateSettings) and written back.
  */
 function loadSettings() {
+	adoptLegacyStorage();
 	let stored = null;
 	try {
 		const raw = window.localStorage.getItem(STORE_KEY);
@@ -2414,8 +2432,8 @@ if (typeof window !== "undefined") {
 	window.__dgvBundle = BUNDLE_ID;
 	// Leftovers of a removed troubleshooting snapshot.
 	try {
-		window.localStorage.removeItem("dsh-graph-view:diagnostic");
-		window.localStorage.removeItem("dsh-graph-view:lastError");
+		window.localStorage.removeItem("dsh-galaxy-view:diagnostic");
+		window.localStorage.removeItem("dsh-galaxy-view:lastError");
 	} catch {
 		// Storage may be unavailable; nothing to clean then.
 	}

@@ -1,5 +1,5 @@
 {
-  "name": "dsh-graph-view",
+  "name": "dsh-galaxy-view",
   "version": "0.3.0",
   "description": "Cinematic 3D galaxy for DeepSeek Harness — workspaces become suns on spiral arms, conversations become stars, one header button returns to the stock UI. · DSH 三维星系图：工作区是旋臂上的恒星，对话是星点，顶栏一键切回原版界面。",
   "type": "module",
@@ -51,10 +51,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dialling/dsh-graph-view.git"
+    "url": "git+https://github.com/dialling/dsh-galaxy-view.git"
   },
-  "homepage": "https://github.com/dialling/dsh-graph-view#readme",
-  "bugs": "https://github.com/dialling/dsh-graph-view/issues",
+  "homepage": "https://github.com/dialling/dsh-galaxy-view#readme",
+  "bugs": "https://github.com/dialling/dsh-galaxy-view/issues",
   "engines": {
     "node": ">=20",
     "dsh": ">=0.2.1-0 <0.3.0-0"

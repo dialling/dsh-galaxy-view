@@ -1195,7 +1195,7 @@ assert.equal(CHANNEL, MEMORY_CHANNEL, "the client and the Node half agree on the
 
 const bundle = readFileSync(join(root, "lib/client.js"), "utf8");
 assert.ok(bundle.includes("window.__ModuleLoader__.load({"), "bundle registers through the client module loader");
-assert.ok(bundle.includes('id: "dsh-graph-view"'), "bundle id matches the package name");
+assert.ok(bundle.includes('id: "dsh-galaxy-view"'), "bundle id matches the package name");
 assert.ok(bundle.includes("exports.apply = apply"), "bundle exports the plugin body");
 assert.ok(bundle.includes("exports.inject = inject"), "bundle declares its services");
 assert.ok(bundle.includes("conversation.session.header.actions"), "header toggle is registered");
@@ -1342,6 +1342,10 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		assert.ok(fade(12) * 12 < 1.7 && fade(12) > 0.1, `twelve bodies in one cell sum to ${(fade(12) * 12).toFixed(2)}× a lone halo`);
 	}
 	assert.ok(bundle.includes("const CAPTION_WIDTHS = new Map();"), "caption widths are cached, not measured per frame");
+	// The package is dsh-galaxy-view; a rename must not reset a tuned look.
+	assert.equal(JSON.parse(readFileSync(join(root, "package.json"), "utf8")).name, "dsh-galaxy-view", "package name");
+	assert.ok(bundle.includes("const LEGACY_KEYS = [[\"settings\", STORE_KEY]") && bundle.includes("dsh-graph-view:${suffix}"), "old storage keys are adopted once");
+	assert.ok(bundle.includes('const STORE_KEY = "dsh-galaxy-view:settings";'), "and the new keys are the ones written");
 	// Skills a plugin registers in memory (ponytail's optional ones) have no SKILL.md; the 技能
 	// list used to drop them because the registry branch required a path.
 	{
@@ -1439,9 +1443,9 @@ assert.ok(paletteAt < guidesAt, "filament palette is bound before the layout gui
 	const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 	assert.equal(pkg.version, "0.3.0", "release version");
 	assert.equal(pkg.author, "dialling", "author is dialling");
-	assert.equal(pkg.repository?.url, "git+https://github.com/dialling/dsh-graph-view.git", "repository points at the dialling repo");
-	assert.equal(pkg.homepage, "https://github.com/dialling/dsh-graph-view#readme", "homepage matches the repo");
-	assert.equal(pkg.bugs, "https://github.com/dialling/dsh-graph-view/issues", "bugs matches the repo");
+	assert.equal(pkg.repository?.url, "git+https://github.com/dialling/dsh-galaxy-view.git", "repository points at the dialling repo");
+	assert.equal(pkg.homepage, "https://github.com/dialling/dsh-galaxy-view#readme", "homepage matches the repo");
+	assert.equal(pkg.bugs, "https://github.com/dialling/dsh-galaxy-view/issues", "bugs matches the repo");
 	assert.deepEqual(pkg.peerDependencies, { "@deepseek-ai/cordis": "^4.0.1" }, "cordis is a peer dependency");
 	assert.equal(pkg.engines?.dsh, ">=0.2.1-0 <0.3.0-0", "dsh engine range includes the 0.2.1 pre-releases");
 	assert.ok(pkg.engines?.node, "node engine range kept");
