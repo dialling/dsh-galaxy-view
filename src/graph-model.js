@@ -355,6 +355,25 @@ const GOLDEN_ANGLE = 2.399963229728653;
 const AGENT_ORBIT = 1.16;
 const AGENT_SPEED = 0.42;
 
+/**
+ * 每颗一个轨道面: each agent gets its own great circle, rotated by two index-derived angles, so two
+ * working sessions never share a plane and cannot cross at the same point.
+ */
+function agentPlane(node) {
+	const tilt = 0.42;
+	const baseU = { x: Math.cos(tilt), y: Math.sin(tilt), z: 0 };
+	const raw = { x: -Math.sin(tilt) * 0.34, y: Math.cos(tilt) * 0.34, z: 0.94 };
+	const length = Math.hypot(raw.x, raw.y, raw.z);
+	const baseV = { x: raw.x / length, y: raw.y / length, z: raw.z / length };
+	const index = node.index ?? 0;
+	// Two independent rotations: the plane's roll and its inclination.
+	const roll = index * GOLDEN_ANGLE;
+	const incline = (index * 1.7) % Math.PI;
+	const rotateZ = (v, a) => ({ x: v.x * Math.cos(a) - v.y * Math.sin(a), y: v.x * Math.sin(a) + v.y * Math.cos(a), z: v.z });
+	const tiltAroundX = (v, a) => ({ x: v.x, y: v.y * Math.cos(a) - v.z * Math.sin(a), z: v.y * Math.sin(a) + v.z * Math.cos(a) });
+	return { u: rotateZ(baseU, roll), v: rotateZ(baseV, roll) };
+}
+
 function agentBasis() {
 	// One shared tilted plane for every travelling agent: they pass each other instead of
 	// crossing at random angles, which is what makes the ring read as a track.
@@ -373,7 +392,10 @@ function agentBasis() {
  */
 function agentBusyness(node, now) {
 	const idleSeconds = Math.max(0, (now - (node.updatedAt ?? 0)) / 1000);
-	const activity = 1 / (1 + idleSeconds / 30);
+	// A session that is still `running` is working even when it has been quiet for minutes (a long
+	// build, a big edit): it keeps most of its light. Only an idle session decays on the 30 s curve.
+	const decay = node.running === true ? 240 : 30;
+	const activity = 1 / (1 + idleSeconds / decay);
 	return Math.max(0, Math.min(1, 0.3 + 0.7 * activity));
 }
 
@@ -382,52 +404,104 @@ function agentBusyness(node, now) {
  * teleporting. `RETURN_SECONDS` is short enough to read as "done" and long enough to follow the
  * body; the position is an ease-out so it arrives softly, not braking at the last frame.
  */
-const RETURN_SECONDS = 0.85;
-const LAUNCH_SECONDS = 0.7;
+const RETURN_SECONDS = 1.2;
+const LAUNCH_SECONDS = 1.6;
+/** Acceleration (world units/s²) at which the soft body is fully stretched. */
+const AGENT_ACCEL_SOFT = 0.9;
+/** Seconds for the tail to grow to full length behind the body. */
+const AGENT_TAIL_GROW = 0.9;
+/** Seconds on the lane before the tail starts recording (the owner wanted it later). */
+const AGENT_TAIL_DELAY = 3.5;
+/** How far the lane angle leads during the exit, in radians. */
+const LAUNCH_LEAD = 0.12;
 
 /**
  * 出发: the flight out. The agent glides from its seat onto the track instead of appearing there —
  * which is also what gives the exit its stretch, the same way the return does.
  */
-function startAgentLaunch(node, seconds) {
+function startAgentLaunch(node, seconds, peers = [], shellRadius = 1) {
 	node.launchFrom = node.seat ?? { x: node.x, y: node.y, z: node.z };
 	node.launchAt = seconds;
+	// 起步点: hash of the id, pushed to the emptiest slot when another agent is already out.
+	node.agentPhase = agentPhaseFor(node, peers);
+	node.agentAngle = node.agentPhase;
+	// The lane point is frozen HERE. Recomputing it per frame made the target drift while the body
+	// chased it — the sudden bend in the exit.
+	const { u, v } = agentPlane(node);
+	const angle = node.agentAngle + LAUNCH_LEAD;
+	const radius = shellRadius * AGENT_ORBIT;
+	node.launchTo = {
+		x: (u.x * Math.cos(angle) + v.x * Math.sin(angle)) * radius,
+		y: (u.y * Math.cos(angle) + v.y * Math.sin(angle)) * radius,
+		z: (u.z * Math.cos(angle) + v.z * Math.sin(angle)) * radius
+	};
+	// 从座位开始: a new flight starts with an empty tail, so nothing is drawn before the body moves.
+	// 拖尾 starts empty: the first sample is the seat itself, taken the moment the body moves.
+	node.agentTrail = [];
+	node.agentTail = 0;
 }
 
 function stepAgentLaunches(galaxy, seconds, shellRadius) {
 	if (galaxy === null) return;
 	const radius = shellRadius * AGENT_ORBIT;
-	const { u, v } = agentBasis();
 	for (const node of galaxy.nodes) {
 		if (node.launchFrom === undefined) continue;
+		const { u, v } = agentPlane(node);
 		const t = Math.min(1, (seconds - node.launchAt) / LAUNCH_SECONDS);
-		const ease = t * t * (3 - 2 * t);
-		const angle = (node.agentPhase ?? 0) + seconds * AGENT_SPEED * (0.55 + 0.9 * (node.agentBusy ?? 0.6));
+		// Smootherstep: zero velocity AND zero acceleration at both ends, so the exit starts and lands
+		// without the little kick smoothstep gives at the handoff.
+		const ease = t * t * t * (t * (t * 6 - 15) + 10);
+		// The lane angle leads a little during the flight, so the handoff to orbitAgents is continuous
+		// instead of the body arriving at a stale angle and then jumping to the integrated one.
+		const lane = node.agentAngle ?? (node.agentPhase ?? 0);
+		const angle = lane + (LAUNCH_LEAD * ease);
 		const target = {
 			x: (u.x * Math.cos(angle) + v.x * Math.sin(angle)) * radius,
 			y: (u.y * Math.cos(angle) + v.y * Math.sin(angle)) * radius,
 			z: (u.z * Math.cos(angle) + v.z * Math.sin(angle)) * radius
 		};
 		const from = node.launchFrom;
-		node.x = from.x + (target.x - from.x) * ease;
-		node.y = from.y + (target.y - from.y) * ease;
-		node.z = from.z + (target.z - from.z) * ease;
+		const at = spiralLeg(from, target, ease, LAUNCH_SECONDS);
+		node.x = at.x;
+		node.y = at.y;
+		node.z = at.z;
 		// 水滴形: fastest in the middle of the flight, which is exactly where it stretches most.
-		node.agentStretch = Math.sin(Math.PI * t);
+		// 软体 in the exit: the drop deforms with how fast it is travelling along the path, and with
+		// the progress so the middle of the flight is the most stretched.
+		const moved = node.agentPrev === undefined ? 0 : Math.hypot(node.x - node.agentPrev.x, node.y - node.agentPrev.y, node.z - node.agentPrev.z);
+		node.agentStretch = Math.max(Math.min(0.55, moved * 60), Math.sin(Math.PI * t) * 0.55);
 		if (t >= 1) {
 			node.launchFrom = undefined;
 			node.launchAt = undefined;
+			node.launchTo = undefined;
 			node.agentOrbit = true;
+			// Continue the lap from exactly where the body landed.
+			node.agentAngle = (node.agentPhase ?? 0) + LAUNCH_LEAD;
+			node.agentAt = seconds;
 			node.agentStretch = 0.06;
+			// 上轨之后才生成尾焰: the tail begins here, empty, and grows as the lap records.
+			node.agentTrail = [];
+			node.agentTail = 0;
+			node.agentLaneSince = seconds;
 		}
+		// No tail on the way out (the owner asked for it to start once the body is on the lane): the
+		// launch records nothing, and the handoff opens an empty one.
 	}
 }
 
 function startAgentReturn(node, seconds, from = null) {
+	// The lap's history is dropped here: keeping it drew a straight chord from the lane to the seat,
+	// which read as the tail suddenly fanning out.
+	node.agentTrail = [];
+	node.agentTail = 0;
+	// A session can finish while the body is still climbing out; the return then starts from that
+	// point instead of being skipped (which left the body to pop back onto its seat).
+	node.launchFrom = undefined;
+	node.launchAt = undefined;
 	// `from` lets a caller hand over where the body actually was: after a graph rebuild the node
 	// object sits at its layout seat again, so its own x/y/z is not the track.
 	node.returningFrom = from ?? { x: node.x, y: node.y, z: node.z };
-	node.returningTo = node.seat ?? { x: 0, y: 0, z: 0 };
+	node.returningTo = node.seat ?? { x: node.x, y: node.y, z: node.z };
 	node.returningAt = seconds;
 	node.agentOrbit = false;
 }
@@ -440,60 +514,200 @@ function stepAgentReturns(galaxy, seconds) {
 		const ease = 1 - Math.pow(1 - t, 3);
 		const from = node.returningFrom;
 		const to = node.returningTo;
-		node.x = from.x + (to.x - from.x) * ease;
-		node.y = from.y + (to.y - from.y) * ease;
-		node.z = from.z + (to.z - from.z) * ease;
-		node.agentReturn = 1 - ease;
+		const at = spiralLeg(from, to, ease, RETURN_SECONDS);
+		node.x = at.x;
+		node.y = at.y;
+		node.z = at.z;
 		// 水滴形 on the way home: the same sin curve, so entry and exit match.
-		node.agentStretch = Math.sin(Math.PI * t);
+		// 变回原形: the drop relaxes as it lands instead of arriving still stretched.
+		node.agentStretch = Math.sin(Math.PI * t) * 0.55;
+		recordAgentTrail(node, seconds);
 		if (t >= 1) {
+			node.agentTail = 0;
+			node.agentTrail = undefined;
+			node.agentStretch = 0;
+			node.agentBusy = undefined;
+			node.agentQuietSince = undefined;
+			node.agentSeenUpdatedAt = undefined;
 			node.returningFrom = undefined;
 			node.returningTo = undefined;
 			node.returningAt = undefined;
-			node.agentReturn = undefined;
 			node.seat = undefined;
 			delete node.agentBusy;
 		}
 	}
 }
 
-/** Points of the agents' great circle, for the single-agent light band. */
-function agentTrackPoints(shellRadius, segments = 96) {
-	if (!(shellRadius > 0)) return [];
-	const radius = shellRadius * AGENT_ORBIT;
-	const { u, v } = agentBasis();
-	const out = [];
-	for (let i = 0; i < segments; i += 1) {
-		const angle = (i / segments) * TAU;
-		const cos = Math.cos(angle);
-		const sin = Math.sin(angle);
-		out.push({ x: (u.x * cos + v.x * sin) * radius, y: (u.y * cos + v.y * sin) * radius, z: (u.z * cos + v.z * sin) * radius });
+
+/**
+ * 拖尾 history. The array starts EMPTY when a flight begins and every sample is a position the body
+ * has already occupied, so the drawn path can only ever trail behind it — a tail can never appear
+ * before the body, and nothing survives from a previous flight.
+ */
+const AGENT_TRAIL_KEEP_SECONDS = 3;
+
+function recordAgentTrail(node, seconds) {
+	// 尾焰生成时间延后: nothing is recorded before the body is on the lane, nor in its first
+	// AGENT_TAIL_DELAY seconds there. A rebuilt node loses the stamp, so adopt one lazily —
+	// otherwise the recorder would bail forever and the tail would never appear.
+	if (node.agentLaneSince === undefined) {
+		if (node.agentOrbit !== true) return;
+		node.agentLaneSince = seconds;
 	}
-	return out;
+	if (seconds - node.agentLaneSince < AGENT_TAIL_DELAY) return;
+	const trail = node.agentTrail ?? (node.agentTrail = []);
+	const last = trail[trail.length - 1];
+	if (last === undefined || Math.hypot(node.x - last.x, node.y - last.y, node.z - last.z) > 0.002) {
+		trail.push({ x: node.x, y: node.y, z: node.z, t: seconds });
+	}
+	// Bound the buffer by age: the renderer picks its own window, this only stops it growing.
+	while (trail.length > 2 && trail[0].t < seconds - AGENT_TRAIL_KEEP_SECONDS) trail.shift();
 }
 
-function orbitAgents(galaxy, seconds, shellRadius, now = Date.now()) {
+/**
+ * 螺旋飞行: one leg of an agent's trip, solved as a body under drag with conserved angular momentum.
+ *   r(t)  = r0 · e^(λt)              λ > 0 climbs out, λ < 0 spirals home
+ *   θ'(t) = L / r²                   so it sweeps faster where the radius is small
+ * The direction rolls on the great-circle plane through both endpoints and lands exactly on `to`.
+ * @returns `{ x, y, z }` at progress `t` (0…1 over `seconds`).
+ */
+function spiralLeg(from, to, t, seconds) {
+	const radiusFrom = Math.hypot(from.x, from.y, from.z);
+	const radiusTo = Math.hypot(to.x, to.y, to.z);
+	if (!(radiusFrom > 1e-3) || !(radiusTo > 1e-3) || seconds <= 0 || Math.abs(Math.log(radiusTo / radiusFrom)) < 1e-6) {
+		// No usable direction or no radial travel: a straight ease is the only sensible answer.
+		return { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t, z: from.z + (to.z - from.z) * t };
+	}
+	const lambda = Math.log(radiusTo / radiusFrom) / seconds;
+	const radius = radiusFrom * Math.exp(lambda * t * seconds);
+	const fromDir = normalise(from);
+	const toDir = normalise(to);
+	const dot = Math.max(-1, Math.min(1, fromDir.x * toDir.x + fromDir.y * toDir.y + fromDir.z * toDir.z));
+	const total = Math.acos(dot);
+	// Normalised sweep: the ∫e^(∓2λt) from 0 to t over the same integral to `seconds`.
+	const spread = 1 - Math.exp(-2 * lambda * t * seconds);
+	const spreadEnd = 1 - Math.exp(-2 * lambda * seconds) || 1;
+	const sweep = spread / spreadEnd;
+	let dir = fromDir;
+	if (total > 1e-4) {
+		const cross = { x: fromDir.y * toDir.z - fromDir.z * toDir.y, y: fromDir.z * toDir.x - fromDir.x * toDir.z, z: fromDir.x * toDir.y - fromDir.y * toDir.x };
+		const crossLength = Math.hypot(cross.x, cross.y, cross.z);
+		if (crossLength > 1e-6) {
+			const n = { x: cross.x / crossLength, y: cross.y / crossLength, z: cross.z / crossLength };
+			const side = { x: n.y * fromDir.z - n.z * fromDir.y, y: n.z * fromDir.x - n.x * fromDir.z, z: n.x * fromDir.y - n.y * fromDir.x };
+			const phi = total * sweep;
+			dir = {
+				x: fromDir.x * Math.cos(phi) + side.x * Math.sin(phi),
+				y: fromDir.y * Math.cos(phi) + side.y * Math.sin(phi),
+				z: fromDir.z * Math.cos(phi) + side.z * Math.sin(phi)
+			};
+		}
+	}
+	return { x: dir.x * radius, y: dir.y * radius, z: dir.z * radius };
+}
+
+/** Unit vector of a point, safe at the origin. */
+function normalise(point) {
+	const length = Math.hypot(point.x, point.y, point.z) || 1;
+	return { x: point.x / length, y: point.y / length, z: point.z / length };
+}
+
+
+/**
+ * 起步点随机: the phase comes from a hash of the session id, then — when other agents are already
+ * flying — it is nudged to the one of twelve slots whose nearest neighbour is furthest away, so two
+ * starts can never land on the same point of the lane.
+ */
+function agentPhaseFor(node, peers = []) {
+	const base = hash01(`agent-phase:${node.id ?? ""}`) * TAU;
+	const taken = peers
+		.filter((peer) => peer !== node && peer.id !== node.id)
+		.map((peer) => peer.agentAngle ?? peer.agentPhase)
+		.filter((angle) => typeof angle === "number");
+	if (taken.length === 0) return base;
+	const gapTo = (angle) => Math.min(...taken.map((other) => Math.abs(Math.atan2(Math.sin(angle - other), Math.cos(angle - other)))));
+	let best = base;
+	let bestGap = gapTo(base);
+	for (let slot = 1; slot < 12; slot += 1) {
+		const candidate = base + (slot / 12) * TAU;
+		const gap = gapTo(candidate);
+		if (gap > bestGap) {
+			bestGap = gap;
+			best = candidate;
+		}
+	}
+	return best;
+}
+
+function orbitAgents(galaxy, seconds, shellRadius, now = Date.now(), speedScale = 1) {
 	if (galaxy === null || !(shellRadius > 0)) return;
 	const radius = shellRadius * AGENT_ORBIT;
-	const { u, v } = agentBasis();
 	for (const node of galaxy.nodes) {
 		if (node.running !== true || node.launchFrom !== undefined) continue;
+		const { u, v } = agentPlane(node);
 		// The phase comes from the node's index, spread by the golden angle — a hash of the id
 		// put two agents 0.004 rad apart when their ids ended in the same letter.
-		if (node.agentPhase === undefined) node.agentPhase = (node.index ?? 0) * GOLDEN_ANGLE;
+		if (node.agentPhase === undefined) node.agentPhase = agentPhaseFor(node, galaxy.nodes);
 		// 忙碌程度: drives both how fast it laps and how bright its pulse is.
-		const busy = agentBusyness(node, now);
-		node.agentBusy = busy;
+		const raw = agentBusyness(node, now);
+		// Low-passed: `updatedAt` moves in bursts, and feeding the raw value to the tail's window made
+		// it jump between lengths every second — the tail looked broken up. (Smoothing uses the frame
+		// delta, which is computed a few lines down; the previous frame's is kept on the node.)
+		const frameDelta = Math.min(0.1, Math.max(0, seconds - (node.agentAt ?? seconds)));
+		// ~2.5 s time constant: brightness drifts with the work, it does not flicker with each write.
+		const smoothing = node.agentBusy === undefined ? 1 : 1 - Math.exp(-frameDelta / 2.5);
+		node.agentBusy = node.agentBusy === undefined ? raw : node.agentBusy + (raw - node.agentBusy) * smoothing;
+		const busy = node.agentBusy;
 		// The seat it leaves: the return animation glides back to this, not to a re-laid-out spot.
 		if (node.seat === undefined) node.seat = { x: node.x, y: node.y, z: node.z };
-		const angle = node.agentPhase + seconds * AGENT_SPEED * (0.55 + 0.9 * busy);
-		node.agentStretch = 0.10 + 0.05 * Math.sin(seconds * 2.3 + node.agentPhase);
+		// 匀速: the angle is INTEGRATED, not recomputed as `phase + t · speed`. With a variable speed
+		// (it follows 忙碌程度, which changes as the session writes) multiplying the whole elapsed
+		// time made the body jump ahead or backwards whenever the rate changed — the uneven lap.
+		if (node.agentAngle === undefined) node.agentAngle = node.agentPhase;
+		const dt = Math.min(0.1, Math.max(0, seconds - (node.agentAt ?? seconds)));
+		node.agentAt = seconds;
+		const targetSpeed = AGENT_SPEED * (0.55 + 0.9 * busy) * speedScale;
+		node.agentSpeed = node.agentSpeed === undefined ? targetSpeed : node.agentSpeed + (targetSpeed - node.agentSpeed) * Math.min(1, dt * 3);
+		node.agentAngle += dt * node.agentSpeed;
+		const angle = node.agentAngle;
+		// 软体/屋顶效果: the drop deforms with ACCELERATION — a body that starts moving, turns or speeds
+		// up stretches along its motion; a steady cruise relaxes back to round.
+		// A rebuild can drop the previous position for one frame. Treating that as "speed 0" produced a
+		// huge acceleration spike, which snapped the drop — that was the flicker. With no previous
+		// frame the shape keeps its current value, and every change is slew-limited.
 		const cos = Math.cos(angle);
 		const sin = Math.sin(angle);
 		node.x = (u.x * cos + v.x * sin) * radius;
 		node.y = (u.y * cos + v.y * sin) * radius;
 		node.z = (u.z * cos + v.z * sin) * radius;
 		node.agentOrbit = true;
+		// The shape is measured AFTER the move: comparing the previous position with the new one is the
+		// only way to see real speed and acceleration. (Measured before it, every frame read 0 and the
+		// drop never deformed.)
+		// Vector acceleration, not just |Δspeed|: a body circling at a constant speed is still
+		// accelerating towards the centre, which is what keeps the drop softly stretched on the lane.
+		const havePrevious = node.agentPrev !== undefined && node.agentVel !== undefined && dt > 0;
+		const velocityOf = (to, from) => ({
+			x: (to.x - from.x) / dt,
+			y: (to.y - from.y) / dt,
+			z: (to.z - from.z) / dt
+		});
+		let accel = 0;
+		if (dt > 0) {
+			const vel = node.agentPrev === undefined ? { x: 0, y: 0, z: 0 } : velocityOf(node, node.agentPrev);
+			if (havePrevious) accel = Math.hypot(vel.x - node.agentVel.x, vel.y - node.agentVel.y, vel.z - node.agentVel.z) / dt;
+			node.agentVel = vel;
+		}
+		const current = node.agentStretch ?? 0.06;
+		const targetStretch = havePrevious ? 0.06 + 0.94 * Math.min(1, accel / AGENT_ACCEL_SOFT) : current;
+		// Hard ceiling as well as a time-based rate: a long frame (or a paused tab) must not allow a
+		// big shape jump in one step.
+		const slew = Math.min(0.08, Math.max(0.02, dt * 2.5));
+		node.agentStretch = current + Math.max(-slew, Math.min(slew, targetStretch - current));
+			node.agentTail = Math.min(1, (node.agentTail ?? 0) + dt / AGENT_TAIL_GROW);
+		// Recorded last, so the newest sample is exactly where the body is: the path can only extend
+		// backwards from it.
+		recordAgentTrail(node, seconds);
 	}
 }
 
@@ -1960,7 +2174,9 @@ export {	ARMS,
 	stepAgentLaunches,
 	startAgentReturn,
 	stepAgentReturns,
-	agentTrackPoints,
+	agentPlane,
+	agentPhaseFor,
+	recordAgentTrail,
 	orbitAgents,
 	SPOKE_CAP,
 	hash01,

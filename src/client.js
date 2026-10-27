@@ -145,6 +145,14 @@ const zh = {
 	"perf.gpu": "GPU 星体",
 	"perf.gpuHint": "关闭后星体改由画布逐个绘制（更慢，但可排除显卡/着色器问题）。",
 	"quality.mobile": "移动",
+	"sec.agent": "工作星体",
+	"slider.agentScale": "星体大小",
+	"slider.agentSpeed": "公转速度",
+	"slider.agentTrail": "拖尾长度",
+	"slider.agentWhiten": "白度",
+	"stat.agentFlying": "在外",
+	"stat.agentReturning": "返航",
+	"stat.agentTurns": "回合",
 	"sec.physics": "力学",
 	"sec.restore": "↺ 还原",
 	"sec.customized": "已自定义",
@@ -390,6 +398,14 @@ const en = {
 	"perf.gpu": "GPU bodies",
 	"perf.gpuHint": "Turn off to draw bodies on the canvas instead (slower, but isolates a GPU/shader problem).",
 	"quality.mobile": "Mobile",
+	"sec.agent": "Working star",
+	"slider.agentScale": "Size",
+	"slider.agentSpeed": "Orbit speed",
+	"slider.agentTrail": "Tail length",
+	"slider.agentWhiten": "Whiteness",
+	"stat.agentFlying": "out",
+	"stat.agentReturning": "returning",
+	"stat.agentTurns": "turns",
 	"sec.physics": "Physics",
 	"sec.restore": "↺ Restore",
 	"sec.customized": "Customised",
@@ -693,9 +709,9 @@ function glowLayerFor(state, canvas) {
 	return layer;
 }
 
-/** 拖尾 bounds: a stalled agent drags a short, dim tail; a busy one a long, bright one. */
-const AGENT_TRAIL_MIN = 8;
-const AGENT_TRAIL_MAX = 42;
+/** 拖尾 bounds: 工作强度 sets the span — 6 samples when stalled, 58 when producing. */
+const AGENT_TRAIL_MIN = 6;
+const AGENT_TRAIL_MAX = 58;
 const AGENT_TRAIL_SECONDS_MIN = 0.25;
 const AGENT_TRAIL_SECONDS_MAX = 1.6;
 
@@ -979,6 +995,8 @@ function GraphScene(props) {
 	const canvasRef = useRef(null);
 	const tipRef = useRef(null);
 	const stateRef = useRef(null);
+	/** `agent.turns`: sessionId → is its turn still open. Polled from the host every 4 s. */
+	const turnsRef = useRef({});
 	const loopRef = useRef({ raf: 0, ensure: () => {} });
 	const [hover, setHover] = useState(null);
 	const [card, setCard] = useState(null);
@@ -1162,6 +1180,9 @@ function GraphScene(props) {
 			// A throwing frame must never escape into the host: catch it, report the
 			// first failure of a burst, and let the next frame try again.
 			try {
+				// 回合结束 comes from the host poll below (a component-level interval, since stepScene is
+				// module-level and has no props).
+				state.turns = turnsRef.current;
 				stepScene(state, delta);
 				const started = performance.now();
 				renderScene(canvas, state);
@@ -1892,8 +1913,24 @@ function stepScene(state, delta) {
 		const nodes = state.galaxy.nodes;
 		for (const node of nodes) {
 			const known = agentState.get(node.id);
-			if (known !== undefined) Object.assign(node, known);
-			node.agentWasRunning = known?.running === true;
+			if (known !== undefined) {
+				// `running` is the HOST's live answer (the very dot the sidebar shows), so it must never
+				// be overwritten by the copy from last frame — that pinned it to `true` forever, which
+				// is why a finished conversation kept orbiting. Only the animation state is carried.
+				const live = node.running;
+				Object.assign(node, known);
+				node.running = live;
+				node.agentWasRunning = known.running === true;
+				// `agentOrbit` says "out on the track". Restoring it blindly made the launch guard
+				// skip, so the body popped onto the ring and the trail showed up already drawn.
+				// Nothing to re-derive: `launchFrom`/`launchAt` and `agentOrbit` travel with the id, so a
+				// launch in progress keeps its clock and a cruising agent keeps its lane. (Re-deriving
+				// here restarted the launch with `launchAt = now` on every frame, which froze the body
+				// at its current point — the "原地跳动" report.)
+				// Carry the clock with the angle (the model caps dt, so a pause cannot jump), but never
+				// keep a stamp from the future: that would freeze the integrator at dt = 0.
+				if (!(node.agentAt <= state.time)) node.agentAt = state.time;
+			}
 		}
 		// 运动方向: the previous frame's position gives the velocity the drop stretches along.
 		for (const node of nodes) {
@@ -1903,22 +1940,84 @@ function stepScene(state, delta) {
 				node.agentPrev = undefined;
 			}
 		}
+		// The unfold (点击进银河视图时所有星体铺开的动画) moves every body): a seat captured before it
+		// ends is stale, so a launch from it would bend towards the lane. Nothing takes off until the
+		// scene has settled, and the seat always tracks the body's current position.
+		// 回合结束: the host reports which sessions finished their turn (`agent.turns`), which is the
+		// only reliable "the reply is done" signal — the graph's own `running` flag never clears here.
+		const settled = state.reveal >= 0.995;
 		for (const node of nodes) {
-			if (node.running === true) {
-				if (node.agentOrbit !== true && node.launchFrom === undefined) {
-					// 出发: the body flies out of its seat (and stretches on the way).
-					if (node.seat === undefined) node.seat = { x: node.x, y: node.y, z: node.z };
-					startAgentLaunch(node, state.time);
-				}
-			} else if (node.agentWasRunning === true && node.agentOrbit === true && node.returningFrom === undefined) {
-				// 回归: work finished while it was out — start from where the body really is (after a
-				// rebuild the node object is back at its seat, so the track position comes from state).
-				startAgentReturn(node, state.time, node.agentPos ?? null);
+			if (node.running !== true && node.agentOrbit !== true && node.launchFrom === undefined && node.returningFrom === undefined) {
+				node.seat = { x: node.x, y: node.y, z: node.z };
 			}
 		}
-		orbitAgents(state.galaxy, state.time, state.shellRadius, Date.now());
+		for (const node of nodes) {
+			if (node.running === true) {
+				// A body that was sent home for idling waits for a new write before it flies out again,
+				// otherwise it would pace in and out every 30 s.
+				const cooling = node.agentCooldownUntil !== undefined && state.time < node.agentCooldownUntil;
+				if (settled && !cooling && node.agentOrbit !== true && node.launchFrom === undefined) {
+					// 出发: the body flies out of its seat (and stretches on the way). The tail starts
+					// empty — it must grow from the seat with the body, never appear assembled.
+					if (node.seat === undefined) node.seat = { x: node.x, y: node.y, z: node.z };
+					startAgentLaunch(node, state.time, nodes, state.shellRadius);
+				}
+			} else if (node.agentWasRunning === true && node.returningFrom === undefined && (node.agentOrbit === true || node.launchFrom !== undefined)) {
+				// The host flag can lag behind the reply: when a session has gone quiet for a while it is
+				// treated as finished too, so the end animation is not held back by a stale `running`.
+				startAgentReturn(node, state.time, node.agentPos ?? null);
+				continue;
+			}
+			// 回归 after the final reply: the host says this session's turn has ended. Until the Node half
+			// is restarted that map is empty, so a long lap is the fallback — the stand-down latch keeps
+			// a resumed session from pacing in and out.
+			const turnEnded = turnEndedFor(state.turns, node.id);
+			// Time on the lane, whether or not the host still calls the session running: this is the
+			// one rule that cannot be starved by a flag that never clears.
+			const lapTooLong = node.agentOrbit === true && state.time - (node.agentLaneSince ?? -Infinity) > 45;
+			if (node.agentOrbit === true && node.returningFrom === undefined && (turnEnded || lapTooLong)) {
+				node.agentCooldownUntil = state.time + 20;
+				startAgentReturn(node, state.time, node.agentPos ?? null);
+				continue;
+			}
+			if (
+				node.running === true &&
+				node.agentOrbit === true &&
+				node.returningFrom === undefined &&
+				// The host's `running` flag does not clear here and `updatedAt` can tick with the
+				// snapshot itself, so the rule is simply time on the lane: a body that has been circling
+				// this long is treated as done. If the work resumes the next write brings it straight
+				// back out (see `agentStoodDown`), so an early return costs nothing.
+				state.time - (node.agentLaneSince ?? state.time) > 30
+			) {
+				node.agentCooldownUntil = state.time + 20;
+				startAgentReturn(node, state.time, node.agentPos ?? null);
+				continue;
+			}
+			if (node.running === true && node.agentOrbit === true && node.updatedAt !== undefined && node.updatedAt !== node.agentSeenUpdatedAt) {
+				node.agentSeenUpdatedAt = node.updatedAt;
+				node.agentQuietSince = state.time;
+			}
+		}
+		// Counters for the panel: a report can then tell "never came back" from "came back unseen".
+		let flying = 0;
+		let returning = 0;
+		for (const node of nodes) {
+			if (node.agentOrbit === true) flying += 1;
+			if (node.returningFrom !== undefined) returning += 1;
+		}
+		liveAgentStats = { flying, returning, turns: Object.keys(state.turns ?? {}).length };
+		orbitAgents(state.galaxy, state.time, state.shellRadius, Date.now(), clamp(state.settings.agentSpeed ?? 1, 0.2, 2.5));
 		stepAgentLaunches(state.galaxy, state.time, state.shellRadius);
 		stepAgentReturns(state.galaxy, state.time);
+		// 复原: once a body has landed it is a plain round star again.
+		for (const node of nodes) {
+			if (node.running !== true && node.agentOrbit !== true && node.launchFrom === undefined && node.returningFrom === undefined) {
+				node.agentStretch = 0;
+				node.agentVel = undefined;
+				node.agentSpeedPrev = undefined;
+			}
+		}
 		// Persist by id for the next frame — and for the next graph, which brings new node objects.
 		agentState.clear();
 		for (const node of nodes) {
@@ -1928,6 +2027,9 @@ function stepScene(state, delta) {
 					agentPos: { x: node.x, y: node.y, z: node.z },
 					seat: node.seat,
 					agentPhase: node.agentPhase,
+					agentAngle: node.agentAngle,
+					agentSpeed: node.agentSpeed,
+					agentAt: node.agentAt,
 					agentBusy: node.agentBusy,
 					agentOrbit: node.agentOrbit,
 					agentStretch: node.agentStretch,
@@ -1935,34 +2037,19 @@ function stepScene(state, delta) {
 					launchAt: node.launchAt,
 					returningFrom: node.returningFrom,
 					returningTo: node.returningTo,
-					returningAt: node.returningAt
+					returningAt: node.returningAt,
+					// The recorded path must survive a rebuild; otherwise the tail vanishes and regrows
+					// roughly once a second (the panel rebuilds at about that rate).
+					agentTrail: node.agentTrail,
+					agentHeading: node.agentHeading,
+					agentPrev: node.agentPrev,
+					agentLaneSince: node.agentLaneSince,
+					agentQuietSince: node.agentQuietSince,
+					agentSeenUpdatedAt: node.agentSeenUpdatedAt
 				});
 			}
 		}
 
-		// 拖尾: samples are timestamped and pruned by both count and age, so nothing from a seat,
-		// a previous flight or a pause can survive into the current one.
-		const trail = state.agentTrails ?? (state.agentTrails = new Map());
-		for (const node of state.galaxy.nodes) {
-			// 从里到外: the tail records the whole flight — the launch out of the seat, the lap on the
-			// track and the glide home — so it grows with the body instead of a ring appearing first.
-			const flying = node.launchFrom !== undefined || node.agentOrbit === true || node.returningFrom !== undefined;
-			if (flying !== true) {
-				trail.delete(node.id);
-				continue;
-			}
-			const path = trail.get(node.id) ?? [];
-			const last = path[path.length - 1];
-			if (last === undefined || Math.hypot(node.x - last.x, node.y - last.y, node.z - last.z) > 0.004) {
-				path.push({ x: node.x, y: node.y, z: node.z, t: state.time });
-			}
-			// 长度 follows the work: a busy agent drags a long tail, a stalled one a short one.
-			const busyNow = node.agentBusy ?? 0.6;
-			const keep = Math.round(AGENT_TRAIL_MIN + (AGENT_TRAIL_MAX - AGENT_TRAIL_MIN) * busyNow);
-			const oldest = state.time - (AGENT_TRAIL_SECONDS_MIN + AGENT_TRAIL_SECONDS_MAX * busyNow);
-			while (path.length > keep || (path.length > 0 && path[0].t < oldest)) path.shift();
-			trail.set(node.id, path);
-		}
 	}
 	stepForces(state);
 	// Fast ease (~70 ms to settle most of a step) so the wheel feels attached to the hand.
@@ -2887,45 +2974,6 @@ function renderScene(canvas, state) {
 	}
 
 	const galaxyNodes = state.galaxy.nodes;
-	// 公转拖尾: the last second of each agent's path, fading towards the tail. Canvas has no
-	// per-vertex alpha, so it is stroked as a handful of segments with a falling alpha.
-	if (state.agentTrails !== undefined && state.agentTrails.size > 0 && reveal > 0.15) {
-		context.globalCompositeOperation = "lighter";
-		context.lineCap = "round";
-		for (const [id, path] of state.agentTrails) {
-			if (path.length < 2) continue;
-			const node = galaxyNodes.find((candidate) => candidate.id === id);
-			// 星体原本的色彩: the tail is the body's own light, not a white wire.
-			const body = starPlateau(node?.hue ?? 200, undefined, node?.tone);
-			// 同色但更白更亮: the same hue as the body, pulled 42 % towards white and brightened.
-			const tint = body.map((channel) => Math.round(channel + (255 - channel) * 0.42));
-			const busy = node?.agentBusy ?? 0.6;
-			const peak = 0.34 + 0.5 * busy;
-			for (let index = 1; index < path.length; index += 1) {
-				const from = projectPoint(path[index - 1], basis, viewport);
-				const to = projectPoint(path[index], basis, viewport);
-				if (from === null || to === null) continue;
-				const share = index / path.length;
-				// Two layers: a soft wide halo under a bright thin core, so the tail reads as light
-				// rather than as a line.
-				context.strokeStyle = `rgba(${tint[0]}, ${tint[1]}, ${tint[2]}, ${(peak * 0.34 * share * share).toFixed(3)})`;
-				context.lineWidth = 2 + 4.5 * share * (0.7 + 0.6 * busy);
-				context.beginPath();
-				context.moveTo(from.x, from.y);
-				context.lineTo(to.x, to.y);
-				context.stroke();
-				context.strokeStyle = `rgba(${tint[0]}, ${tint[1]}, ${tint[2]}, ${(peak * share * share).toFixed(3)})`;
-				context.lineWidth = 0.8 + 1.9 * share;
-				context.beginPath();
-				context.moveTo(from.x, from.y);
-				context.lineTo(to.x, to.y);
-				context.stroke();
-			}
-		}
-		context.globalCompositeOperation = "source-over";
-		context.globalAlpha = 1;
-	}
-
 	// Links (recipe §3): one device pixel, source-over, each link in the desaturated mix
 	// of its endpoint colours, batched into one path per colour bucket and class.
 	// 链接透明度 scales the class alphas (1× at Galaxy View's 0.14).
@@ -3099,12 +3147,18 @@ function renderScene(canvas, state) {
 			// it come up with it, and the rest of the sky stays where it was.
 			const linked = chosen !== null && (state.neighbours?.get(chosen)?.has(node.id) ?? false);
 			const emphasis = (node.id === hot ? 2.6 : linked ? 1.5 : 1) * (node.current ? 1.4 : 1);
-			const pulse = node.running ? 1 + 0.25 * Math.sin(state.time * 2.4 + hash01(node.id) * TAU) : 1;
+			// 无闪动: a working body does not pulse at all — 工作强度 sets a constant light instead.
+			const pulse = 1;
 			// 阈值 gates on the body's own mass, so it stays put as the camera zooms.
 			const gate = bloomGate(bloomLuminance(starMass(node, settings.sizeBy, state.degree)), threshold);
 			const prox = entry.prox ?? 1;
 			const bandHalo = prox >= 0.66 ? 1 : prox >= 0.33 ? 0.55 : 0.18;
-			const gain = haloGain * pulse * emphasis * fadeOf(node) * (node.archived ? 0.55 : 1) * node._k * bandHalo * crowdFadeOf(entry) * (node.running === true ? 0.45 + 0.15 * (node.agentBusy ?? 0.6) + (1 - (0.45 + 0.15 * (node.agentBusy ?? 0.6))) * (0.5 + 0.5 * Math.sin(state.time * (3.4 + 4.6 * (node.agentBusy ?? 0.6)) + (node.index ?? 0) * 2.399963)) : 1);
+			// A flying body already carries its own drop shape and tail, so its glow is cut right down —
+			// a wide halo around it read as a second body. 流线型: a tight rim, no ball of light.
+			const flying = node.running === true || node.agentOrbit === true || node.returningFrom !== undefined || node.launchFrom !== undefined;
+			// 去掉闪动: a steady light that only follows 忙碌程度 — the pulse read as a flicker.
+			const blinkGain = node.running === true ? 0.4 + 0.9 * (node.agentBusy ?? 0.6) : 1;
+			const gain = haloGain * pulse * emphasis * fadeOf(node) * (node.archived ? 0.55 : 1) * node._k * bandHalo * crowdFadeOf(entry) * blinkGain * (flying ? 0.22 : 1);
 			const innerAlpha = Math.min(1, innerHaloAlpha(entry.dot / 2) * gain * gate * haloArea);
 			// A halo this faint is invisible but still a full-size fill: skip the draw.
 			if (innerAlpha < 0.004) continue;
@@ -3121,6 +3175,8 @@ function renderScene(canvas, state) {
 			// It keeps a whisper of itself at every threshold, so a high 阈值 thins the glow
 			// instead of flattening the sky.
 			const outerDrawn = HALO_OUTER.radius * 2 * haloSpan;
+			// 光晕减少: no wide outer halo on a flying body — its drop and tail already say "here".
+			if (flying) continue;
 			const outerAlpha = Math.min(1, 0.022 * gain * (0.3 * (1 - threshold) + 0.7 * gate) * haloArea);
 			if (outerAlpha < 0.004) continue;
 			if (entry.x < -outerDrawn || entry.x > width + outerDrawn || entry.y < -outerDrawn || entry.y > height + outerDrawn) continue;
@@ -3153,9 +3209,8 @@ function renderScene(canvas, state) {
 		// 忙碌程度 changes the pulse itself: a busy agent beats faster and never gets as dim as a
 		// stalled one, so speed and brightness both read as "how much work is happening".
 		const busy = node.running === true ? (node.agentBusy ?? 0.6) : 0;
-		const blink = node.running === true
-			? 0.45 + 0.15 * busy + (1 - (0.45 + 0.15 * busy)) * (0.5 + 0.5 * Math.sin(state.time * (3.4 + 4.6 * busy) + (node.index ?? 0) * 2.399963))
-			: 1;
+		// 工作强度 → 亮度: a stalled agent is visibly dimmer than a producing one (0.62 … 1.18).
+		const blink = node.running === true ? 0.62 + 0.56 * busy : 1;
 		// A deep zoom pushes most bodies off the stage; skipping them here also skips the
 		// sprite bake, which is the expensive part.
 		if (entry.x < -entry.dot || entry.x > width + entry.dot || entry.y < -entry.dot || entry.y > height + entry.dot) continue;
@@ -3167,14 +3222,49 @@ function renderScene(canvas, state) {
 		// the sprite cache without bound and froze the view.
 		const stretch = node.agentStretch ?? 0;
 		if (stretch > 0.03) {
+			// Heading from the WORLD velocity projected onto the camera axes — never from the difference
+			// of two projected points. Close to the camera that projection inverts, so the difference
+			// flipped and the drop seemed to spin ~90° for a frame and snap back.
 			const prev = node.agentPrev;
-			const back = prev === undefined ? null : projectPoint(prev, basis, viewport);
-			const heading = back === null ? 0 : Math.atan2(entry.y - back.y, entry.x - back.x);
+			let heading = node.agentHeading ?? 0;
+			if (prev !== undefined) {
+				const vx = node.x - prev.x;
+				const vy = node.y - prev.y;
+				const vz = node.z - prev.z;
+				// Exact screen velocity: x = side/depth, so x' = (side'·depth − side·depth') / depth².
+				// Projecting the velocity linearly (side', lift' alone) ignores the depth term, which is a
+				// systematic 5–10° bias whenever the body moves towards or away from the camera.
+				const ex = node.x - basis.eye.x;
+				const ey = node.y - basis.eye.y;
+				const ez = node.z - basis.eye.z;
+				const depth = ex * basis.forward.x + ey * basis.forward.y + ez * basis.forward.z;
+				const sideAt = ex * basis.right.x + ey * basis.right.y + ez * basis.right.z;
+				const liftAt = ex * basis.up.x + ey * basis.up.y + ez * basis.up.z;
+				const sideV = vx * basis.right.x + vy * basis.right.y + vz * basis.right.z;
+				const liftV = vx * basis.up.x + vy * basis.up.y + vz * basis.up.z;
+				const depthV = vx * basis.forward.x + vy * basis.forward.y + vz * basis.forward.z;
+				const side = depth > 1e-3 ? (sideV * depth - sideAt * depthV) / (depth * depth) : sideV;
+				const lift = depth > 1e-3 ? (liftV * depth - liftAt * depthV) / (depth * depth) : liftV;
+				if (Math.hypot(side, lift) > 2e-9) {
+					const next = Math.atan2(-lift, side);
+					// Reject an implausible single-frame turn: a real one is well under 35°.
+					const turn = node.agentHeading === undefined ? 0 : Math.abs(Math.atan2(Math.sin(next - node.agentHeading), Math.cos(next - node.agentHeading)));
+					if (node.agentHeading === undefined || turn < 0.6) {
+						heading = next;
+						node.agentHeading = next;
+					}
+				}
+			}
 			// 扁平细长: the body is a slim drop, not a fat oval — thinner across than a star both at
 			// rest and in flight, and longer along the heading as the acceleration grows.
-			const across = entry.dot * (0.74 - 0.24 * stretch);
-			const along = Math.max(entry.dot * (1 + 1.5 * stretch), across * 1.9);
-			const tint = starPlateau(entry.hue, undefined, entry.tone);
+			const scale = clamp(settings.agentScale ?? 1, 0.4, 2.5);
+			const across = entry.dot * (0.56 - 0.16 * stretch) * scale;
+			const along = Math.max(entry.dot * (1 + 2.0 * stretch) * scale, across * 2.4);
+			// 不够白: the plateau colour keeps the workspace's orange, which reads muddy against the
+			// dark sky. A flying body is pulled 62 % towards white and lifted, so it reads as light.
+			const plate = starPlateau(entry.hue, undefined, entry.tone);
+			const whiten = clamp(settings.agentWhiten ?? 0.62, 0, 1);
+			const tint = plate.map((channel) => Math.round(channel + (255 - channel) * whiten));
 			// ONE closed path: a round head at the leading edge with two flanks sweeping back to a
 			// point. Two separate fills (an oval plus a circle) read as two blobs whenever the head
 			// was wider than the oval — this cannot.
@@ -3200,10 +3290,19 @@ function renderScene(canvas, state) {
 			context.fill();
 			// A white-hot point at the head, so the shape reads as a drop with weight in front.
 			context.globalAlpha = 1;
-			context.fillStyle = "rgba(255, 252, 244, 0.96)";
+			context.fillStyle = "rgba(255, 255, 252, 0.98)";
 			context.beginPath();
 			context.arc(noseCentre, 0, head * 0.46, 0, TAU);
 			context.fill();
+			// Additive lift: the body's own light follows 工作强度, which an opaque fill cannot show.
+			if (blink > 1) {
+				context.globalCompositeOperation = "lighter";
+				context.globalAlpha = Math.min(1, (blink - 1) * 0.9);
+				context.beginPath();
+				context.ellipse(-along * 0.18, 0, along * 0.5, across * 0.4, 0, 0, TAU);
+				context.fill();
+				context.globalCompositeOperation = "source-over";
+			}
 			context.restore();
 			continue;
 		}
@@ -3261,6 +3360,93 @@ function renderScene(canvas, state) {
 			state.glowFailed = true;
 			dropGlowLayer(state);
 		}
+	}
+
+	// 拖尾: one continuous path per agent, stroked with a linear gradient from the body (deep colour,
+	// full light) to the tip (white, nearly nothing). Per-segment strokes with a per-segment width
+	// left visible joints at every sample — the "断断续续" the owner kept seeing — so the tail is
+	// drawn as a few whole-path passes of decreasing width instead.
+	if (reveal > 0.15) {
+		const trailScale = clamp(settings.agentTrail ?? 1, 0, 2.5);
+		const whiten = clamp(settings.agentWhiten ?? 0.62, 0, 1);
+		context.globalCompositeOperation = "lighter";
+		context.lineCap = "round";
+		context.lineJoin = "round";
+		for (const node of galaxyNodes) {
+			const full = node.agentTrail;
+			if (trailScale <= 0.001 || full === undefined || full.length < 2) continue;
+			const busy = node.agentBusy ?? 0.6;
+			const window = (0.55 + 0.9 * busy) * trailScale;
+			let first = full.length - 1;
+			while (first > 0 && full[first - 1].t >= state.time - window) first -= 1;
+			// Fewer than two samples inside the window means no stroke at all; fall back to the last few
+			// so a short or slow tail still draws instead of disappearing.
+			if (full.length - first < 2) first = Math.max(0, full.length - 8);
+			if (full.length - first < 2) continue;
+			// Project the kept samples once; a null projection breaks the path instead of drawing a
+			// straight line across the screen.
+			const points = [];
+			let holes = 0;
+			for (let index = first; index < full.length; index += 1) {
+				const at = projectPoint(full[index], basis, viewport);
+				if (at === null) {
+					holes += 1;
+					// One or two unprojectable samples are a rounding artefact near the camera; breaking the
+					// path there showed up as a tail that blinks. Only a real run of them means "off screen".
+					if (holes >= 4 && points.length > 0) points.push(null);
+					continue;
+				}
+				holes = 0;
+				points.push(at);
+			}
+			const usable = points.filter((point) => point !== null);
+			if (usable.length < 2) continue;
+			const head = usable[usable.length - 1];
+			const tip = usable[0];
+			const plate = starPlateau(node.hue ?? 200, undefined, node.tone);
+			// The old tail was whiter than the raw plateau colour (which reads yellow); keep that mix.
+			const deep = plate.map((channel) => Math.round(channel + (255 - channel) * Math.min(1, whiten + 0.18)));
+			const peak = (0.2 + 0.6 * busy) * Math.min(1, 0.35 + usable.length / 30);
+			const base = (0.7 + 2.6 * busy) * clamp(settings.agentScale ?? 1, 0.4, 2.5);
+			// Rebuild the gradient only when the tail has actually moved: allocating one per agent per
+			// frame was what made the lap stutter.
+			const key = `${Math.round(tip.x / 4)},${Math.round(tip.y / 4)},${Math.round(head.x / 4)},${Math.round(head.y / 4)},${Math.round(peak * 20)},${deep[0]}`;
+			if (node.agentTailKey !== key) {
+				node.agentTailKey = key;
+				node.agentTailGradient = null;
+			}
+			const gradient = node.agentTailGradient ?? context.createLinearGradient(tip.x, tip.y, head.x, head.y);
+			node.agentTailGradient = gradient;
+			// 近体深色 → 尾端白色, with the light falling towards the tip.
+			// 末端渐隐: transparent at the tip, fading in along the lightest quarter, so reaching the
+			// set length never looks like the tail being cut off and rebuilt.
+			gradient.addColorStop(0, "rgba(255, 255, 255, 0)");
+			gradient.addColorStop(0.18, `rgba(255, 255, 255, ${(peak * 0.06).toFixed(3)})`);
+			gradient.addColorStop(0.42, `rgba(${Math.round((deep[0] + 255) / 2)}, ${Math.round((deep[1] + 255) / 2)}, ${Math.round((deep[2] + 255) / 2)}, ${(peak * 0.32).toFixed(3)})`);
+			gradient.addColorStop(0.78, `rgba(${deep[0]}, ${deep[1]}, ${deep[2]}, ${(peak * 0.72).toFixed(3)})`);
+			gradient.addColorStop(1, `rgba(${deep[0]}, ${deep[1]}, ${deep[2]}, ${peak.toFixed(3)})`);
+			context.strokeStyle = gradient;
+			// Three whole-path passes: wide and faint under narrow and bright, so the flame tapers
+			// without a joint anywhere along it.
+			for (const [scale, alphaScale] of [[1, 0.45], [0.45, 1]]) {
+				context.globalAlpha = alphaScale;
+				context.lineWidth = base * scale;
+				context.beginPath();
+				let started = false;
+				for (const point of points) {
+					if (point === null) {
+						started = false;
+						continue;
+					}
+					if (started) context.lineTo(point.x, point.y);
+					else context.moveTo(point.x, point.y);
+					started = true;
+				}
+				context.stroke();
+			}
+			context.globalAlpha = 1;
+		}
+		context.globalCompositeOperation = "source-over";
 	}
 
 	// Captions: workspace names always; a session name only when it matters. The size follows
@@ -3345,9 +3531,10 @@ const SECTION_KEYS = {
 	bloom: ["brightness", "bloomStrength", "bloom", "threshold"],
 	shape: ["arms", "twist", "thickness", "spread"],
 	physics: PHYSICS_KEYS,
-	motion: ["autoOrbit", "orbitSpeed", "tourSpeed", "selectionDepth"]
+	motion: ["autoOrbit", "orbitSpeed", "tourSpeed", "selectionDepth"],
+	agent: ["agentScale", "agentSpeed", "agentTrail", "agentWhiten"]
 };
-const SECTIONS_OPEN = { look: true, filter: true, links: true };
+const SECTIONS_OPEN = { look: true, filter: true, links: true, agent: true };
 /** Quick link colours: silver-white, then three of the 深空 hues. */
 const LINK_SWATCHES = ["#cfd8e8", "#46d4dc", "#ffc35c", "#d87fa8"];
 /** Keys a hover preview may borrow from a preset: everything but the silhouette, which would rebuild the galaxy. */
@@ -3478,6 +3665,23 @@ function MyPresetChip({ preset, index, t, onApply, onRename, onMove, onDrop }) {
 }
 
 /** The left control panel: presets, filters, colour, deep space, bloom, shape, physics, navigation, quality. */
+/** `agent.turns` may key on a slightly different id form than the graph; match by suffix. */
+function turnEndedFor(turns, id) {
+	if (turns === null || turns === undefined || typeof id !== "string") return false;
+	if (turns[id] === false) return true;
+	for (const key of Object.keys(turns)) {
+		if (turns[key] !== false) continue;
+		if (key.endsWith(id) || id.endsWith(key)) return true;
+	}
+	return false;
+}
+
+/** Bumped by scripts/build.mjs; shown in the panel so a stale bundle is visible at a glance. */
+const BUILD_STAMP = typeof __DSH_GALAXY_BUILD__ === "string" ? __DSH_GALAXY_BUILD__ : "dev";
+
+/** Live counts of the flying bodies: written by the frame loop, read by 工作星体. */
+let liveAgentStats = { flying: 0, returning: 0, turns: 0 };
+
 function ControlPanel(props) {
 	const { t, settings, update, applyPreset, revertPreset, themes, myPresets, saveMyPreset, applyMyPreset, renameMyPreset, moveMyPreset, dropMyPreset, workspaces, stats, controls, onClose, qualityLabel, preview, setPreview } = props;
 	const [help, setHelp] = useState(false);
@@ -3763,6 +3967,26 @@ function ControlPanel(props) {
 				slide("thickness", "slider.thickness", 0.2, 3, 0.05),
 				slide("spread", "slider.spread", 0.35, 2.4, 0.05)
 			)
+		),
+		// 工作星体: the flying agent's own module — size, orbital speed, tail length and whiteness.
+		section(
+			"agent",
+			`${t("sec.agent")} · ${BUILD_STAMP}`,
+			badgeFor("agent"),
+			() =>
+				h(
+					"div",
+					{ className: "dgv-rows" },
+					slide("agentScale", "slider.agentScale", 0.4, 2.5, 0.05),
+					slide("agentSpeed", "slider.agentSpeed", 0.2, 2.5, 0.05),
+					slide("agentTrail", "slider.agentTrail", 0, 2.5, 0.05),
+					slide("agentWhiten", "slider.agentWhiten", 0, 1, 0.02),
+					h(
+						"p",
+						{ className: "dgv-hint" },
+						`${t("stat.agentFlying")} ${liveAgentStats.flying} · ${t("stat.agentReturning")} ${liveAgentStats.returning} · ${t("stat.agentTurns")} ${liveAgentStats.turns}`
+					),
+				)
 		),
 		// Physics: the force layer over the layout
 		section("physics", t("sec.physics"), badgeFor("physics"), () =>
@@ -4098,6 +4322,27 @@ function GraphPage(props) {
 		},
 		[graph, enterStar]
 	);
+	// 回合结束: the only reliable "the reply is done" signal here — the graph's `running` flag never
+	// clears, and every timer-based rule either cut long work or never fired.
+	useEffect(() => {
+		if (props.memory === undefined || props.memory === null) return () => {};
+		let alive = true;
+		const load = () => {
+			Promise.resolve()
+				.then(() => props.memory("agent.turns", {}))
+				.then((turns) => {
+					if (alive && turns !== null && typeof turns === "object") turnsRef.current = turns;
+				})
+				.catch(() => {});
+		};
+		load();
+		const timer = setInterval(load, 4000);
+		return () => {
+			alive = false;
+			clearInterval(timer);
+		};
+	}, [props.memory]);
+
 	useEffect(() => {
 		const bridge = props.sidebar;
 		if (bridge === undefined || bridge === null) return () => {};
@@ -4529,7 +4774,8 @@ function MemoryScene({ graph, selected, onSelect, onOpen, t }) {
 				frame.stroke();
 			}
 
-			// Bodies: the galaxy's own baked star sprites (soft rim, hot core, halo) instead
+
+	// Bodies: the galaxy's own baked star sprites (soft rim, hot core, halo) instead
 			// of flat discs — same visual language, so the map reads as a small cousin of
 			// the star view rather than as a scatter plot.
 			frame.globalCompositeOperation = "lighter";

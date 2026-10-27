@@ -11,14 +11,17 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { zstdCompressSync } from "node:zlib";
 import assert from "node:assert/strict";
+import { hslToRgb } from "../src/stars.js";
 
 import {
 	SKY_BUCKETS,
 	SKY_CLASSES,
 	SPOKE_CAP,
 	AGENT_ORBIT,
-	agentTrackPoints,
 	startAgentLaunch,
+	startAgentReturn,
+	stepAgentReturns,
+	agentPlane,
 	stepAgentLaunches,
 	orbitAgents,
 	SKY_RADIUS,
@@ -689,7 +692,7 @@ assert.equal(clientSource.split("const linkColor = {").length - 1, 0, "no stray 
 	const starPass = render.slice(starsAt, render.indexOf("// Captions:", starsAt));
 	assert.ok(starsAt >= 0, "renderScene has the star pass");
 	assert.ok(!render.includes("createRadialGradient"), "renderScene builds no radial gradients per frame (stars and halos are cached sprites)");
-	assert.ok(render.split("createLinearGradient").length - 1 === 1 && render.includes("const gradientOf = (a, b, index, colours)"), "the only per-frame gradient is the link colour ramp");
+	assert.ok(render.split("createLinearGradient").length - 1 === 2 && render.includes("const gradientOf = (a, b, index, colours)") && render.includes("node.agentTailGradient ?? context.createLinearGradient(tip.x, tip.y, head.x, head.y)"), "per-frame gradients are limited to the link ramp and one agent tail");
 	assert.ok(!clientSource.includes("glowSprite"), "no node-scaled glowSprite skirt");
 	assert.ok(!/rgba\(6,\s*8,\s*14/.test(clientSource), "no dark outline strokes around star bodies");
 	assert.ok(!/hsla?\(\$\{[^}]+\},\s*(8[5-9]|9\d|100)%/.test(starPass), "no saturated (S >= 85%) solid star bodies");
@@ -795,7 +798,7 @@ assert.ok(clientSource.includes('event.key === "ArrowLeft"') && clientSource.inc
 assert.ok(clientSource.includes('node.kind === "doc" ? 0.33 : 0.462'), "settled: 记忆库's body glow, +10% as asked");
 
 /* ── settings v4: the shipped look moved to the near-white wire + wide bloom ── */
-assert.equal(SETTINGS_VERSION, 17, "settings version 17: 集群云雾 off reaches existing installs");
+assert.equal(SETTINGS_VERSION, 19, "settings version 19: default 图形质量 high reaches existing installs");
 assert.equal(DEFAULTS.gpuGlow, true, "GPU bodies are on by default");
 assert.equal(PRESETS.minimal.linkWidth, 0.6, "矩阵 draws its links at 0.6, 30% below 银河's 0.85");
 assert.equal(PRESETS.system.mist, 0, "太阳系 draws no cluster clouds");
@@ -1403,7 +1406,7 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 	// A top-level `const` used before its declaration throws every frame and blanks the scene.
 	{
 		const declAt = clientSource.indexOf("const galaxyNodes = state.galaxy.nodes;");
-		const firstUse = clientSource.indexOf("galaxyNodes.find(");
+		const firstUse = clientSource.indexOf("for (const node of galaxyNodes)");
 		assert.ok(declAt > 0 && firstUse > declAt, "galaxyNodes is declared before anything reads it");
 	}
 	// 巡飞的 Agent: a running session leaves its seat and circles outside the shell, blinking.
@@ -1422,23 +1425,193 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		});
 		assert.ok(radii.every((radius) => radius > shell), `the agent flies outside the shell (${radii[0].toFixed(2)} > ${shell.toFixed(2)})`);
 		assert.equal(new Set(radii.map((radius) => radius.toFixed(6))).size, 1, "on an exact circle");
+		// The angle integrates per frame, so travel comes from stepping frames, not jumping the clock:
+		// 120 frames at 60 fps must move the body by roughly 2 s × the orbit speed.
 		const start = { x: agent.x, y: agent.y, z: agent.z };
-		orbitAgents(sky, 5.7, shell);                          // +2 s = 0.84 rad along the track
-		assert.ok(Math.hypot(agent.x - start.x, agent.y - start.y, agent.z - start.z) > 0.8, "and keeps travelling along it");
+		for (let frame = 0; frame < 120; frame += 1) orbitAgents(sky, 5.7 + frame / 60, shell);
+		assert.ok(Math.hypot(agent.x - start.x, agent.y - start.y, agent.z - start.z) > 0.5, "and keeps travelling along it");
+		// 速度均匀: a changing 忙碌程度 must not teleport the body — every frame moves it by a similar,
+		// small step (the bug was `phase + t · speed`, which multiplied the whole elapsed time).
+		const walk = { nodes: [{ id: "w", running: true, updatedAt: Date.now(), index: 1 }] };
+		let previous = null;
+		let biggest = 0;
+		for (let frame = 0; frame < 240; frame += 1) {
+			// busy flips hard every 20 frames, as a session going quiet then writing again does
+			walk.nodes[0].updatedAt = Date.now() - (Math.floor(frame / 20) % 2 === 0 ? 2000 : 90000);
+			orbitAgents(walk, frame / 60, shell, Date.now());
+			const point = { x: walk.nodes[0].x, y: walk.nodes[0].y, z: walk.nodes[0].z };
+			if (previous !== null) biggest = Math.max(biggest, Math.hypot(point.x - previous.x, point.y - previous.y, point.z - previous.z));
+			previous = point;
+		}
+		assert.ok(biggest < 0.02, `a speed change never jumps the body (largest frame step ${biggest.toFixed(4)})`);
 		assert.equal(sky.nodes.find((node) => node.id === "idle").agentOrbit, undefined, "idle sessions stay in their seats");
-		assert.ok(bundle.includes("const blink = node.running === true") && bundle.includes("3.4 + 4.6 * busy"), "with a busyness-driven blink on body, lift and halo");
+		assert.ok(bundle.includes("const blink = node.running === true ? 0.62 + 0.56 * busy : 1;") && !bundle.includes("3.4 + 4.6 * busy"), "no pulse: the light is steady and follows 工作强度");
 		assert.ok(bundle.includes("if (a.running === true || b.running === true) return false;"), "a flying agent keeps no threads");
 		// 水滴形: launch/return stretch the body along its motion; cruising keeps a small breathing one.
-		assert.ok(bundle.includes("const LAUNCH_SECONDS = 0.7;") && bundle.includes("function stepAgentLaunches("), "the exit is a flight, not a pop");
+		assert.ok(bundle.includes("const LAUNCH_SECONDS = 1.6;") && bundle.includes("function stepAgentLaunches("), "the exit is a flight, not a pop");
 		// 回归 across a rebuild: the finished session arrives as a new node object, so the glide has
 		// to be carried by id and start from the remembered track position.
 		assert.ok(clientSource.includes("const agentState = state.agentState ?? (state.agentState = new Map());") && clientSource.includes("agentState.set(node.id, {"), "per-agent state is carried by id across graphs");
 		assert.ok(clientSource.includes("agentPos: { x: node.x, y: node.y, z: node.z }"), "including the position it was flying at");
 		assert.ok(bundle.includes("function startAgentReturn(node, seconds, from = null)"), "and the return can be told where to start");
+	// 无闪动, everywhere: no time-based sine on a working body, no travelling shimmer on its tail.
+	{
+		const onAgents = (clientSource.match(/node\.running[^;]*Math\.sin/g) ?? []).concat(clientSource.match(/Math\.sin[^;]*node\.running/g) ?? []);
+		assert.equal(onAgents.length, 0, "no time-based sine is applied to a working body");
+		assert.ok(bundle.includes("const pulse = 1;"), "the halo of a working body does not pulse");
+		assert.ok(!clientSource.includes("const shimmer ="), "and its tail has no travelling wave");
+	}
+	// 启动衔接 + 结束动画
+	assert.ok(bundle.includes("const LAUNCH_LEAD = 0.12;") && bundle.includes("const ease = t * t * t * (t * (t * 6 - 15) + 10);"), "smootherstep exit with a leading lane angle");
+	assert.ok(bundle.includes("node.agentAngle = (node.agentPhase ?? 0) + LAUNCH_LEAD;") && bundle.includes("node.agentAt = seconds;"), "so the handoff to the integrator is continuous");
+	assert.ok(bundle.includes("node.launchFrom = undefined;\n\tnode.launchAt = undefined;"), "a body that finishes mid-exit still gets its return");
+	// 深 → 白: the tail is the body's colour next to the body and white at the tip.
+	{
+		const deepOf = (hue) => hslToRgb(hue, 0.62, 0.72).map((channel) => Math.round(channel + (255 - channel) * 0.62 * 0.35));
+		const tintAt = (hue, toWhite) => deepOf(hue).map((channel) => Math.round(channel + (255 - channel) * toWhite));
+		for (const hue of [15, 190, 205]) {
+			const near = tintAt(hue, 0.02);
+			const far = tintAt(hue, 0.98);
+			const spread = (rgb) => Math.max(...rgb) - Math.min(...rgb);
+			assert.ok(spread(near) > 25, `hue ${hue} keeps its colour near the body (rgb ${near.join(",")})`);
+			assert.ok(spread(far) < 12, `and is white at the tip (rgb ${far.join(",")})`);
+		}
+	}
+	// 起步点随机: three starts in a row land on three distinct points of the lane.
+	{
+		const now = Date.now();
+		const nodes = ["alpha", "beta", "gamma"].map((id, index) => ({ id, running: true, updatedAt: now, index, x: 0, y: 0, z: 0 }));
+		const galaxy = { nodes };
+		for (const node of nodes) {
+			node.seat = { x: 0.1 * node.index, y: 0.05, z: 0.02 };
+			startAgentLaunch(node, 0, nodes);
+			stepAgentLaunches(galaxy, 0.75, 1);
+		}
+		for (let frame = 0; frame < 3; frame += 1) orbitAgents(galaxy, 0.8 + frame / 60, 1, now);
+		let closest = Math.PI;
+		for (let i = 0; i < nodes.length; i += 1) {
+			for (let j = i + 1; j < nodes.length; j += 1) {
+				const a = nodes[i].agentPhase;
+				const b = nodes[j].agentPhase;
+				closest = Math.min(closest, Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b))));
+			}
+		}
+		assert.ok(closest > 0.5, `start points never coincide (closest pair ${closest.toFixed(2)} rad apart)`);
+	}
+	// 1. 工作星体 module: a real section with four sliders, wired to the drawing.
+	// A section without an entry here crashes `badgeFor` and the panel never opens.
+	assert.ok(clientSource.includes('agent: ["agentScale", "agentSpeed", "agentTrail", "agentWhiten"]'), "the 工作星体 section is registered for its badge");
+	assert.ok(bundle.includes("agent: true"), "and opens by default");
+		assert.ok(clientSource.includes('section(\n\t\t\t"agent",') && ["agentScale", "agentSpeed", "agentTrail", "agentWhiten"].every((key) => clientSource.includes(`slide("${key}"`)), "the panel has a 工作星体 section with its four controls");
+	assert.ok(clientSource.includes("const scale = clamp(settings.agentScale ?? 1, 0.4, 2.5);") && clientSource.includes("(state.settings.agentSpeed ?? 1, 0.2, 2.5)"), "and the sliders reach the body and the orbit");
+	// 2. no pulse anywhere on the flying body.
+	assert.ok(!clientSource.includes("Math.sin(state.time * (3.4"), "the flicker is gone");
+	// 3. 尾焰 starts at zero and grows out of the body; it is a length, not a history.
+	{
+		const now = Date.now();
+		const body = { id: "ta", running: true, updatedAt: now, index: 1, x: 0.3, y: 0.2, z: 0.1 };
+		body.seat = { x: 0.3, y: 0.2, z: 0.1 };
+		startAgentLaunch(body, 0);
+		assert.equal(body.agentTrail.length, 0, "a flight starts with no tail at all");
+		// 尾焰 must be visible during the exit: the window is a duration, not scaled by the growth factor.
+		assert.ok(clientSource.includes("const window = (0.55 + 0.9 * busy) * trailScale;") && !clientSource.includes("trailScale * clamp(node.agentTail"), "the tail window is constant, so its length follows speed only");
+		// The end animation must not wait for a host flag that can lag.
+		assert.ok(clientSource.includes("state.time - (node.agentLaneSince ?? state.time) > 30") && clientSource.includes("node.agentOrbit === true || node.launchFrom !== undefined"), "a finished or idle session returns home");
+		assert.ok(clientSource.includes("const window = (0.55 + 0.9 * busy) * trailScale;") && clientSource.includes("while (first > 0 && full[first - 1].t >= state.time - window)"), "the tail is the recorded path, trimmed by a time window");
+
+		{
+			// 1) the tail can never precede the body, 2) its length follows the body's speed.
+			const now = Date.now();
+			const make = (scale) => {
+				const node = { id: `sp${scale}`, running: true, updatedAt: now, index: 1, x: 0, y: 0, z: 0 };
+				node.seat = { x: 0.2, y: 0, z: 0 };
+				const galaxy = { nodes: [node] };
+				startAgentLaunch(node, 0, galaxy.nodes);
+				assert.equal(node.agentTrail.length, 0, "a flight starts with an empty tail");
+				for (let frame = 1; frame <= 110; frame += 1) stepAgentLaunches(galaxy, frame / 60, 1);
+				for (let frame = 1; frame <= 300; frame += 1) {
+					node.agentPrev = { x: node.x, y: node.y, z: node.z };
+					orbitAgents(galaxy, 2 + frame / 60, 1, now, scale);
+				}
+				const last = node.agentTrail[node.agentTrail.length - 1];
+				assert.ok(Math.hypot(last.x - node.x, last.y - node.y, last.z - node.z) < 1e-9, "and its last sample is the body itself");
+				const window = 0.3 + 1.1 * (node.agentBusy ?? 0.6);
+				const kept = node.agentTrail.filter((sample) => sample.t >= last.t - window);
+				let length = 0;
+				for (let index = 1; index < kept.length; index += 1) length += Math.hypot(kept[index].x - kept[index - 1].x, kept[index].y - kept[index - 1].y, kept[index].z - kept[index - 1].z);
+				return { length, speed: node.agentSpeed };
+			};
+			const slow = make(0.4);
+			const fast = make(2);
+			const speedRatio = fast.speed / slow.speed;
+			assert.ok(Math.abs(fast.length / slow.length - speedRatio) < 0.15, `the tail length follows the speed (${slow.length.toFixed(2)} → ${fast.length.toFixed(2)}, speeds x${speedRatio.toFixed(1)})`);
+		}
+	}
+	// 4.每颗自己的轨道面.
+	{
+		const planes = [1, 2, 3, 4].map((index) => agentPlane({ index }));
+		const normals = planes.map((plane) => ({
+			x: plane.u.y * plane.v.z - plane.u.z * plane.v.y,
+			y: plane.u.z * plane.v.x - plane.u.x * plane.v.z,
+			z: plane.u.x * plane.v.y - plane.u.y * plane.v.x
+		}));
+		let smallest = 1;
+		for (let i = 0; i < normals.length; i += 1) {
+			for (let j = i + 1; j < normals.length; j += 1) {
+				const a = normals[i];
+				const b = normals[j];
+				smallest = Math.min(smallest, Math.abs(a.x * b.x + a.y * b.y + a.z * b.z));
+			}
+		}
+		assert.ok(smallest < 0.6, `agents fly on different planes (smallest |cos| between normals ${smallest.toFixed(3)})`);
+		assert.ok(!readFileSync(join(root, "src", "graph-model.js"), "utf8").includes("const { u, v } = agentBasis();\n\tfor (const node of galaxy.nodes) {\n\t\tif (node.running"), "and orbitAgents uses the per-agent plane, not one shared basis");
+	}
+	// A snapshot can rebuild the graph on every frame; the integrated angle must survive it, or the
+	// body parks at its phase angle and only the breathing stretch moves ("在一个点跳动"）。
+	{
+		assert.ok(clientSource.includes("agentAngle: node.agentAngle,") && clientSource.includes("agentAt: node.agentAt,"), "the integrator travels with the id");
+		const now = Date.now();
+		const rebuild = () => {
+			const snap = { items: [{ workspaceId: "rw", path: "/rw", title: "rw", sessionIds: ["ra", "rb"] }], archivedSessionIds: [] };
+			const ss = { ids: ["ra", "rb"], byId: { ra: { id: "ra", displayTitle: "ra", cwd: "/rw", updatedAt: now, running: true }, rb: { id: "rb", displayTitle: "rb", cwd: "/rw", updatedAt: now } } };
+			return createGalaxy(buildGraph(snap, ss, {}), 1, { layout: "galaxy" });
+		};
+		let sky = rebuild();
+		const shell = Math.max(...sky.nodes.map((node) => Math.hypot(node.x, node.y, node.z)));
+		const carried = new Map();
+		const trail = [];
+		for (let frame = 0; frame < 180; frame += 1) {
+			const t = frame / 60;
+			sky = rebuild();
+			const body = sky.nodes.find((node) => node.id === "ra");
+			const known = carried.get("ra");
+			if (known !== undefined) Object.assign(body, known);
+			orbitAgents(sky, t, shell, now);
+			carried.set("ra", { agentPhase: body.agentPhase, agentAngle: body.agentAngle, agentSpeed: body.agentSpeed, agentAt: body.agentAt, seat: body.seat, agentOrbit: true, agentPos: { x: body.x, y: body.y, z: body.z } });
+			if (frame % 60 === 0) trail.push(body.agentAngle);
+		}
+		assert.ok(trail[trail.length - 1] > trail[0] + 1, `a rebuild every frame still orbits (${trail.map((angle) => angle.toFixed(2)).join(" → ")})`);
+	}
+	// The tail must be the body's colour, not white: `starPlateau` is a near-white plate, so the
+	// tint is built from the hue at a real saturation.
+	{
+		const tail = (hue) => hslToRgb(hue, 0.96, 0.58).map((channel) => Math.round(channel + (255 - channel) * 0.18));
+		for (const hue of [15, 155, 190, 205]) {
+			const [r, g, b] = tail(hue);
+			const spread = Math.max(r, g, b) - Math.min(r, g, b);
+			assert.ok(spread > 80, `hue ${hue} keeps its colour in the tail (rgb ${r},${g},${b})`);
+		}
+		assert.ok(clientSource.includes("if (flying) continue;"), "a flying body draws no wide outer halo");
+		assert.ok(clientSource.includes("blinkGain * (flying ? 0.22 : 1)"), "and its glow is cut to a tight rim");
+	}
+	// The tail must start empty with each flight: nothing assembled may show up before the body moves.
+	assert.ok(bundle.includes("node.agentTail = 0;"), "a new flight starts with no tail");
+	assert.ok(clientSource.includes("launchFrom: node.launchFrom,") && clientSource.includes("launchAt: node.launchAt,"), "an in-progress launch travels with its own clock");
+	assert.ok(!clientSource.includes("node.launchAt = state.time;"), "and is never restarted on a rebuild (that froze the body at one point)");
 	// 扁平细长 + 不透明 + 尾部同色更白
-	assert.ok(clientSource.includes("const across = entry.dot * (0.74 - 0.24 * stretch)"), "the body is slimmer than a star");
+	assert.ok(clientSource.includes("const across = entry.dot * (0.56 - 0.16 * stretch)"), "the body is slimmer than a star");
 	assert.ok(clientSource.includes("context.globalAlpha = 1;\n\t\t\tcontext.fillStyle = `rgb(${tint[0]}, ${tint[1]}, ${tint[2]})`;"), "and drawn opaque — the blink rides on the halo, not the material");
-	assert.ok(clientSource.includes("body.map((channel) => Math.round(channel + (255 - channel) * 0.42))"), "the tail keeps the body's hue, pulled towards white");
+	assert.ok(clientSource.includes("const plate = starPlateau(node.hue ?? 200") && clientSource.includes('gradient.addColorStop(0, "rgba(255, 255, 255, 0)")') && clientSource.includes("Math.min(1, whiten + 0.18)"), "the tail is deep at the body and white at the tip");
 	{
 		const bez = (p0, p1, p2, p3, t) => {
 			const u = 1 - t;
@@ -1449,8 +1622,8 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		};
 		const silhouette = (stretch) => {
 			const dot = 10;
-			const across = dot * (0.74 - 0.24 * stretch);
-			const along = Math.max(dot * (1 + 1.5 * stretch), across * 1.9);
+			const across = dot * (0.56 - 0.16 * stretch);
+			const along = Math.max(dot * (1 + 2.0 * stretch), across * 2.4);
 			const head = across * 0.5;
 			const tail = along * 0.5;
 			const waist = across * 0.5;
@@ -1468,45 +1641,135 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		};
 		const cruise = silhouette(0.1);
 		const flight = silhouette(1);
-		assert.ok(cruise.aspect > 1.6 && flight.aspect > 4.5, `a slim, long drop (${cruise.aspect.toFixed(2)} cruising, ${flight.aspect.toFixed(2)} in flight)`);
-		assert.ok(flight.height < 6, `and flat across the heading (${flight.height.toFixed(1)} px at dot 10)`);
+		assert.ok(cruise.aspect > 2.2 && flight.aspect > 7, `a slim, long drop (${cruise.aspect.toFixed(2)} cruising, ${flight.aspect.toFixed(2)} in flight)`);
+		assert.ok(flight.height < 6 && cruise.height < 6, `and flat across the heading (${flight.height.toFixed(1)} / ${cruise.height.toFixed(1)} px at dot 10)`);
 	}
 	// 锁定 must not be dropped by anything but an explicit release.
 	assert.ok(clientSource.includes("state.lockWanted = true;") && clientSource.includes("state.lockWanted = false;"), "the lock is a user intent");
 	assert.ok(clientSource.includes("if (state.lockWanted === true && state.trackId === null && state.selectedId !== null"), "and re-arms itself when something drops it");
-	// The tail is recorded across the whole flight, so it grows from the seat.
-	assert.ok(clientSource.includes("const flying = node.launchFrom !== undefined || node.agentOrbit === true || node.returningFrom !== undefined;"), "the tail records launch, lap and return");
-		assert.ok(bundle.includes("node.agentStretch = Math.sin(Math.PI * t);"), "and both travel legs stretch on the same sine curve");
-		assert.ok(bundle.includes("node.agentStretch = 0.10 + 0.05 * Math.sin(seconds * 2.3 + node.agentPhase);"), "cruising keeps a small breathing stretch");
-		assert.ok(clientSource.includes("if (stretch > 0.03)") && clientSource.includes("context.rotate(heading)") && clientSource.includes("const along = Math.max(entry.dot * (1 + 1.5 * stretch), across * 1.9)") && clientSource.includes("const across = entry.dot * (0.74 - 0.24 * stretch)"), "the body is drawn as a rotated drop");
-		{
-			// stretch peaks mid-flight and returns to the cruise value at both ends
-			const now = Date.now();
-			const ws = { items: [{ workspaceId: "dw", path: "/dw", title: "dw", sessionIds: ["da"] }], archivedSessionIds: [] };
-			const ss = { ids: ["da"], byId: { da: { id: "da", displayTitle: "da", cwd: "/dw", updatedAt: now, running: true } } };
-			const sky = createGalaxy(buildGraph(ws, ss, {}), 1, { layout: "galaxy" });
-			const shell = Math.max(...sky.nodes.map((node) => Math.hypot(node.x, node.y, node.z)));
-			const body = sky.nodes.find((node) => node.id === "da");
-			orbitAgents(sky, 0, shell, now);
-			const seatRadius = Math.hypot(body.x, body.y, body.z);
-			startAgentLaunch(body, 0);
-			const curve = [0.05, 0.2, 0.35, 0.5, 0.65].map((t) => {
-				stepAgentLaunches(sky, t, shell);
-				return body.agentStretch;
-			});
-			assert.ok(curve[2] > 0.95, `the stretch peaks mid-flight (${curve[2].toFixed(2)})`);
-			assert.ok(curve[0] < 0.5 && curve[4] < 0.95, "and relaxes at both ends");
-			stepAgentLaunches(sky, 0.75, shell);
-			assert.ok(Math.hypot(body.x, body.y, body.z) > seatRadius, "the body ends up outside the seat radius");
+	// 尾焰 belongs to the body: a 0 → 1 length grown on both travel legs, retracted on the way home.
+	{
+		const model = readFileSync(join(root, "src", "graph-model.js"), "utf8");
+		const records = (model.match(/recordAgentTrail\(node, seconds\);/g) ?? []).length;
+		assert.ok(records >= 2, `the lap and the return record the path (${records} call sites)`);
+		assert.ok(model.includes("const AGENT_TAIL_DELAY = 3.5;"), "and the recorder waits 3.5 s after the lane");
+		assert.ok(clientSource.includes("const window = (0.55 + 0.9 * busy) * trailScale;") && clientSource.includes("while (first > 0 && full[first - 1].t >= state.time - window)"), "the tail is the recorded path, trimmed by a time window");
+		assert.ok(bundle.includes("const AGENT_ACCEL_SOFT = 0.9;") && bundle.includes("Math.min(1, accel / AGENT_ACCEL_SOFT)"), "and the drop deforms with acceleration (soft body)");
+		assert.ok(!bundle.includes("Math.sin(seconds * 2.3 + node.agentPhase)"), "no timer-driven breathing stretch");
+	}
+	// the drop is still one rotated path, sized by 星体大小
+	{
+		// 出去的过程中不要尾焰: nothing is recorded until the body is on the lane.
+		const now = Date.now();
+		const body = { id: "nt", running: true, updatedAt: now, index: 1, x: 0.5, y: 0.3, z: 0.1 };
+		body.seat = { x: 0.5, y: 0.3, z: 0.1 };
+		const galaxy = { nodes: [body] };
+		startAgentLaunch(body, 0, galaxy.nodes, 1);
+		let duringExit = 0;
+		for (let frame = 1; frame <= 108; frame += 1) {
+			body.agentPrev = { x: body.x, y: body.y, z: body.z };
+			stepAgentLaunches(galaxy, frame / 60, 1);
+			if (frame / 60 < 1.6) duringExit = Math.max(duringExit, body.agentTrail.length);
 		}
-		// 回归: a finished agent glides home instead of teleporting.
-		assert.ok(bundle.includes("const RETURN_SECONDS = 0.85;") && bundle.includes("function startAgentReturn("), "the return glide exists");
-		assert.ok(clientSource.includes("startAgentReturn(node, state.time, node.agentPos ?? null)") && clientSource.includes("stepAgentReturns(state.galaxy, state.time)"), "and the frame loop starts and steps it");
-		// 拖尾: the last second of the track, drawn as fading segments.
-		assert.ok(bundle.includes("const AGENT_TRAIL_MAX = 42;") && clientSource.includes("state.agentTrails"), "each agent keeps a trail of its own path");
-		assert.ok(clientSource.includes("peak * share * share") && clientSource.includes("starPlateau(node?.hue ?? 200") && clientSource.includes("AGENT_TRAIL_MIN + (AGENT_TRAIL_MAX - AGENT_TRAIL_MIN) * busyNow"), "the tail fades, narrows, wears the body colour and grows with the work");
-		// 忙碌程度 drives speed and light; a single agent gets its track painted.
-		assert.ok(bundle.includes("const busy = agentBusyness(node, now);") && bundle.includes("AGENT_SPEED * (0.55 + 0.9 * busy)"), "a busier agent laps faster");
+		assert.equal(duringExit, 0, "no tail while the body climbs out");
+		assert.equal(body.agentTrail.length, 0, "and the lane starts with an empty one");
+		for (let frame = 1; frame <= 300; frame += 1) {
+			body.agentPrev = { x: body.x, y: body.y, z: body.z };
+			orbitAgents(galaxy, 1.8 + frame / 60, 1, now, 1);
+		}
+		assert.ok(body.agentTrail.length > 100, `the lap records it after the 1.2 s delay (${body.agentTrail.length} samples after 5 s)`);
+	}
+	{
+		// 软体: the shape is measured from prev → new with VECTOR acceleration, so a circling body
+		// keeps a gentle stretch instead of freezing at the round default.
+		const now = Date.now();
+		const body = { id: "sb", running: true, updatedAt: now, index: 1, x: 0.4, y: 0.2, z: 0.1 };
+		body.seat = { x: body.x, y: body.y, z: body.z };
+		const galaxy = { nodes: [body] };
+		startAgentLaunch(body, 0, galaxy.nodes, 1);
+		for (let frame = 1; frame <= 108; frame += 1) {
+			body.agentPrev = { x: body.x, y: body.y, z: body.z };
+			stepAgentLaunches(galaxy, frame / 60, 1);
+		}
+		for (let frame = 1; frame <= 300; frame += 1) {
+			body.agentPrev = { x: body.x, y: body.y, z: body.z };
+			orbitAgents(galaxy, 1.8 + frame / 60, 1, now, 1);
+		}
+		assert.ok(body.agentStretch > 0.15, `cruising keeps the drop softly stretched (${body.agentStretch.toFixed(2)})`);
+		assert.ok(body.agentStretch <= 1, "and never past its cap");
+		let previous = body.agentStretch;
+		let worst = 0;
+		for (let frame = 1; frame <= 200; frame += 1) {
+			if (frame % 17 === 0) { body.agentPrev = undefined; body.agentVel = undefined; }
+			body.agentPrev = body.agentPrev ?? { x: body.x, y: body.y, z: body.z };
+			orbitAgents(galaxy, 7 + frame / 60, 1, now, 1);
+			worst = Math.max(worst, Math.abs(body.agentStretch - previous));
+			previous = body.agentStretch;
+		}
+		assert.ok(worst < 0.1, `and a rebuild cannot snap it (max step ${worst.toFixed(3)})`);
+	}
+		// The panel says which bundle is live, so a stale client is visible instead of guessed at.
+		assert.ok(clientSource.includes("const BUILD_STAMP = typeof __DSH_GALAXY_BUILD__") && /__DSH_GALAXY_BUILD__ = "[0-9a-f]{6}"/.test(bundle), "the bundle carries a build stamp and the panel shows it");
+	{
+		// Both legs of the trip are the same physical curve: exponential radius against conserved
+		// angular momentum, so neither is a straight chord.
+		const now = Date.now();
+		const body = { id: "spiral", running: true, updatedAt: now, index: 1, x: 0.35, y: 0.12, z: 0.05 };
+		body.seat = { x: body.x, y: body.y, z: body.z };
+		const galaxy = { nodes: [body] };
+		startAgentLaunch(body, 0, galaxy.nodes, 1);
+		let previous = null;
+		let outbound = 0;
+		for (let frame = 1; frame <= 100; frame += 1) {
+			body.agentPrev = { x: body.x, y: body.y, z: body.z };
+			stepAgentLaunches(galaxy, frame / 60, 1);
+			const r = Math.hypot(body.x, body.y, body.z);
+			const dir = { x: body.x / r, y: body.y / r, z: body.z / r };
+			if (previous !== null) outbound += Math.acos(Math.max(-1, Math.min(1, dir.x * previous.x + dir.y * previous.y + dir.z * previous.z)));
+			previous = dir;
+		}
+		assert.ok(outbound > 0.5, `the exit swings round, not straight (${((outbound * 180) / Math.PI).toFixed(0)} degrees)`);
+		for (let frame = 1; frame <= 120; frame += 1) {
+			body.agentPrev = { x: body.x, y: body.y, z: body.z };
+			orbitAgents(galaxy, 1.9 + frame / 60, 1, now, 1);
+		}
+		startAgentReturn(body, 4, { x: body.x, y: body.y, z: body.z });
+		let inbound = 0;
+		previous = null;
+		for (let frame = 1; frame <= 80; frame += 1) {
+			stepAgentReturns(galaxy, 4 + frame / 60);
+			const r = Math.hypot(body.x, body.y, body.z);
+			const dir = r > 1e-6 ? { x: body.x / r, y: body.y / r, z: body.z / r } : previous;
+			if (previous !== null && dir !== null) inbound += Math.acos(Math.max(-1, Math.min(1, dir.x * previous.x + dir.y * previous.y + dir.z * previous.z)));
+			previous = dir;
+		}
+		assert.ok(inbound > 0.4, `and the way home spirals (${((inbound * 180) / Math.PI).toFixed(0)} degrees)`);
+	}
+	assert.ok(clientSource.includes("if (stretch > 0.03)") && clientSource.includes("context.rotate(heading)") && clientSource.includes("const along = Math.max(entry.dot * (1 + 2.0 * stretch) * scale, across * 2.4)") && clientSource.includes("const across = entry.dot * (0.56 - 0.16 * stretch) * scale"), "the body is drawn as a rotated drop");
+	// the exit still stretches and still lands outside the seat
+	{
+		const now = Date.now();
+		const ws = { items: [{ workspaceId: "dw", path: "/dw", title: "dw", sessionIds: ["da"] }], archivedSessionIds: [] };
+		const ss = { ids: ["da"], byId: { da: { id: "da", displayTitle: "da", cwd: "/dw", updatedAt: now, running: true } } };
+		const sky = createGalaxy(buildGraph(ws, ss, {}), 1, { layout: "galaxy" });
+		const shell = Math.max(...sky.nodes.map((node) => Math.hypot(node.x, node.y, node.z)));
+		const body = sky.nodes.find((node) => node.id === "da");
+		orbitAgents(sky, 0, shell, now);
+		const seatRadius = Math.hypot(body.x, body.y, body.z);
+		startAgentLaunch(body, 0);
+		const curve = [];
+		for (let frame = 0; frame <= 96; frame += 1) {
+			stepAgentLaunches(sky, frame / 60, shell);
+			curve.push(body.agentStretch);
+		}
+		assert.ok(Math.max(...curve) > 0.5 && Math.max(...curve) <= 0.56, `the exit stretches the drop gently (${Math.max(...curve).toFixed(2)})`);
+		assert.ok(Math.hypot(body.x, body.y, body.z) > seatRadius * 0.9, "and lands on the lane, outside the seat radius");
+	}
+	// 回归: a finished agent glides home instead of teleporting
+	assert.ok(bundle.includes("const RETURN_SECONDS = 1.2;") && bundle.includes("function startAgentReturn("), "the return glide exists");
+	assert.ok(clientSource.includes("startAgentReturn(node, state.time, node.agentPos ?? null)") && clientSource.includes("stepAgentReturns(state.galaxy, state.time)"), "and the frame loop starts and steps it");
+	// 忙碌程度 drives speed and light; a single agent gets its track painted.
+		assert.ok(bundle.includes("const raw = agentBusyness(node, now);") && bundle.includes("AGENT_SPEED * (0.55 + 0.9 * busy)"), "a busier agent laps faster");
 		assert.ok(!bundle.includes("state.agentTrack"), "no static orbit band: the tail is the real path, not a ring drawn from the start");
 		{
 			const now = Date.now();
@@ -1517,17 +1780,24 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 			};
 			const fast = busyOf(2);
 			const slow = busyOf(120);
-			assert.ok(fast > slow + 0.3, `a 2 s-old agent reads busier than a 2 min-old one (${fast.toFixed(2)} vs ${slow.toFixed(2)})`);
-			const track = agentTrackPoints(1, 48);
-			assert.equal(track.length, 48, "the band is a closed ring");
-			assert.ok(track.every((point) => Math.abs(Math.hypot(point.x, point.y, point.z) - AGENT_ORBIT) < 1e-9), "at exactly AGENT_ORBIT");
+			// A running session decays slowly (a long task must not read as idle); an idle one fast.
+			assert.ok(fast > slow + 0.15, `a 2 s-old agent reads busier than a 2 min-old one (${fast.toFixed(2)} vs ${slow.toFixed(2)})`);
+			const idleBusy = (secondsAgo) => {
+				const sky = { nodes: [{ id: "z", running: false, updatedAt: now - secondsAgo * 1000, index: 0 }] };
+				return 0.3 + 0.7 / (1 + secondsAgo / 30);
+			};
+			assert.ok(idleBusy(5) > idleBusy(120) + 0.3, "an idle session still fades on the 30 s curve");
+			// The static band is gone; the track radius still has to be the documented multiple.
+			const sky2 = { nodes: [{ id: "y", running: true, updatedAt: now, index: 1 }] };
+			orbitAgents(sky2, 0, 1, now);
+			assert.ok(Math.abs(Math.hypot(sky2.nodes[0].x, sky2.nodes[0].y, sky2.nodes[0].z) - AGENT_ORBIT) < 1e-9, "the track sits at exactly AGENT_ORBIT");
 		}
 		// The force layer wrote every simulated position back onto the nodes, which dragged a
 		// flying agent off its track and back — the "disappears for a second" flicker.
-		assert.ok(readFileSync(join(root, "src", "physics.js"), "utf8").includes("if (node.running === true) continue;"), "the simulation leaves a flying agent alone");
+		assert.ok(readFileSync(join(root, "src", "physics.js"), "utf8").includes("if (node.running === true || node.agentOrbit === true || node.launchFrom !== undefined || node.returningFrom !== undefined) continue;"), "the simulation leaves a flying or returning agent alone");
 		// phase spread: index × golden angle, not an id hash (two ids 0.004 rad apart)
-		assert.ok(bundle.includes("(node.index ?? 0) * GOLDEN_ANGLE") && !bundle.includes("hash01(`agent:"), "agents are spread by index, so they cannot stack");
-		assert.ok(clientSource.includes("orbitAgents(state.galaxy, state.time, state.shellRadius, Date.now())"), "driven every frame, in every layout");
+		assert.ok(bundle.includes("agentPhaseFor(node, galaxy.nodes)") && !bundle.includes("(node.index ?? 0) * GOLDEN_ANGLE"), "start points come from the id hash, spread to the emptiest of twelve slots");
+		assert.ok(clientSource.includes("orbitAgents(state.galaxy, state.time, state.shellRadius, Date.now(), clamp(state.settings.agentSpeed ?? 1, 0.2, 2.5))"), "driven every frame, in every layout");
 	}
 	// The package is dsh-galaxy-view; a rename must not reset a tuned look.
 	assert.equal(JSON.parse(readFileSync(join(root, "package.json"), "utf8")).name, "dsh-galaxy-view", "package name");

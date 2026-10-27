@@ -63,12 +63,14 @@ const warp = inlineModel(source("src/warp.js"));
 const client = source("src/client.js").trim();
 const css = source("src/styles.css");
 
+const stamp = createHash("sha256").update(model + physics + stars + gpu + memory + warp + client).digest("hex").slice(0, 6);
 const bundle = [
 	"// dsh-galaxy-view — generated client bundle. Do not edit: change src/ and run",
 	"// `node scripts/build.mjs` instead.",
 	"window.__ModuleLoader__.load({",
 	`	id: ${JSON.stringify(packageName)},`,
 	"	factory: (require) => {",
+	`		const __DSH_GALAXY_BUILD__ = ${JSON.stringify(stamp)};`,
 	"		var module = { exports: {} };",
 	"		var exports = module.exports;",
 	"		Object.defineProperty(exports, Symbol.toStringTag, { value: \"Module\" });",

@@ -263,7 +263,9 @@ function writeSimulation(sim, nodes) {
 		// A working agent is placed by `orbitAgents` every frame. Writing the simulation's copy
 		// back would drag it off the track to its old seat and back — a per-frame flicker that
 		// read as the body vanishing for a second.
-		if (node.running === true) continue;
+		// A flying body is placed by the agent layer (exit, lap or return); writing the simulation's
+		// copy back made a returning body jitter between its seat and the glide.
+		if (node.running === true || node.agentOrbit === true || node.launchFrom !== undefined || node.returningFrom !== undefined) continue;
 		node.x = sim.pos[index * 3];
 		node.y = sim.pos[index * 3 + 1];
 		node.z = sim.pos[index * 3 + 2];

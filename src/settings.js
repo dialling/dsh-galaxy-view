@@ -13,6 +13,8 @@ import { LAYOUTS } from "./graph-model.js";
  * filters and has every visual key reset to {@link DEFAULTS} once.
  */
 /**
+ * 19: default 图形质量 is "high" instead of "auto".
+ * 18: 工作星体 controls (scale / orbit speed / trail length / whiteness).
  * 17: 集群云雾 is off in every preset (the orange cloud read as a stray blob that did not
  * follow the star it belonged to); 16: 高性能渲染 toggle (GPU 星体) added; 15: 矩阵's links are thinner (连线粗细 0.85 → 0.6, −30%); 14: 太阳系 no longer draws 集群云雾 (the cloud billboards were baked at the old planet
  * positions and stayed behind as coloured ghosts once the orbits moved); 13: 方阵's 集群云雾 drops to 0.37 (was 0.52); 12: every preset's 辉光强度 drops a notch (0.5 → 0.38, 极简 0.42 → 0.34, 太阳系 0.34 →
@@ -22,7 +24,7 @@ import { LAYOUTS } from "./graph-model.js";
  * what makes an *existing* install pick this up: an upgrade resets every non-preserved key to
  * `DEFAULTS`.
  */
-const SETTINGS_VERSION = 17;
+const SETTINGS_VERSION = 19;
 
 /** Every theme draws on pure black; colour comes only from stars, links and world-space haze. */
 const SPACE = "#000000";
@@ -95,6 +97,10 @@ function themeOf(name) {
 const DEFAULTS = {
 	settingsVersion: SETTINGS_VERSION,
 	preset: "galaxy",
+	agentScale: 1,
+	agentSpeed: 1,
+	agentTrail: 1,
+	agentWhiten: 0.62,
 	layout: "spiral",
 	theme: DEFAULT_THEME,
 	/** Body and link strength. */
@@ -150,7 +156,7 @@ const DEFAULTS = {
 	orbitSpeed: 0.35,
 	tourSpeed: 1,
 	selectionDepth: 2,
-	quality: "auto",
+	quality: "high",
 	tour: false,
 	language: "auto",
 	panelWidth: 300,
