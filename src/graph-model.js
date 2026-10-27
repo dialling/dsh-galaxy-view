@@ -345,6 +345,43 @@ function treePlan(folders, arms, salt) {
 	return plan;
 }
 
+/**
+ * 巡飞的 Agent: a session that is working right now leaves its seat and circles the outside of the
+ * shell — a tilted great circle at AGENT_ORBIT × the shell radius, so it reads as "working, above
+ * everything else" instead of as one more dot in a cluster. Blinking is the client's job (it owns
+ * the frame clock); this only moves the body.
+ */
+const AGENT_ORBIT = 1.16;
+const AGENT_SPEED = 0.42;
+
+function agentBasis() {
+	// One shared tilted plane for every travelling agent: they pass each other instead of
+	// crossing at random angles, which is what makes the ring read as a track.
+	const tilt = 0.42;
+	const u = { x: Math.cos(tilt), y: Math.sin(tilt), z: 0 };
+	// Orthogonal to u, then normalised, so the track is an exact circle rather than a slight oval.
+	const raw = { x: -Math.sin(tilt) * 0.34, y: Math.cos(tilt) * 0.34, z: 0.94 };
+	const length = Math.hypot(raw.x, raw.y, raw.z);
+	return { u, v: { x: raw.x / length, y: raw.y / length, z: raw.z / length } };
+}
+
+function orbitAgents(galaxy, seconds, shellRadius) {
+	if (galaxy === null || !(shellRadius > 0)) return;
+	const radius = shellRadius * AGENT_ORBIT;
+	const { u, v } = agentBasis();
+	for (const node of galaxy.nodes) {
+		if (node.running !== true) continue;
+		if (node.agentPhase === undefined) node.agentPhase = hash01(`agent:${node.id}`) * TAU;
+		const angle = node.agentPhase + seconds * AGENT_SPEED;
+		const cos = Math.cos(angle);
+		const sin = Math.sin(angle);
+		node.x = (u.x * cos + v.x * sin) * radius;
+		node.y = (u.y * cos + v.y * sin) * radius;
+		node.z = (u.z * cos + v.z * sin) * radius;
+		node.agentOrbit = true;
+	}
+}
+
 /** Two unit vectors perpendicular to a spoke, for forks and twigs. */
 function treeFrame(direction) {
 	const tangent = normalize(cross(direction, Math.abs(direction.y) > 0.95 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 }));
@@ -1800,6 +1837,9 @@ function shortestPath(graph, from, to) {
 export {	ARMS,
 	SHAPE,
 	HUES,
+	AGENT_ORBIT,
+	AGENT_SPEED,
+	orbitAgents,
 	SPOKE_CAP,
 	hash01,
 	basename,

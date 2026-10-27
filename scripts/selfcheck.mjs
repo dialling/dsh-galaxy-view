@@ -16,6 +16,7 @@ import {
 	SKY_BUCKETS,
 	SKY_CLASSES,
 	SPOKE_CAP,
+	orbitAgents,
 	SKY_RADIUS,
 	SKY_TINTS,
 	buildGraph,
@@ -986,7 +987,7 @@ for (const [id, preset] of Object.entries(PRESETS)) {
 	// map draws every body at full alpha too.
 	// 完全不透明: every body is drawn at alpha 1 — bands, 亮度 and the lens only change its
 	// colour, never its opacity.
-	assert.ok(clientSource.includes("context.globalAlpha = 1;\n\t\tcontext.drawImage(spriteImage(sprite.canvas), bodyX, bodyY, side, side);") && !clientSource.includes("bodyAlpha * bandAlpha"), "a body is drawn fully opaque");
+	assert.ok(clientSource.includes("context.globalAlpha = blink;\n\t\tcontext.drawImage(spriteImage(sprite.canvas), bodyX, bodyY, side, side);") && !clientSource.includes("bodyAlpha * bandAlpha"), "a body is drawn opaque — `blink` is 1 for everything except a working agent");
 	assert.ok(!/globalAlpha = bodyAlpha \* Math\.min\(1, bodyGain\)/.test(clientSource), "亮度 never thins a body");
 	assert.ok(clientSource.includes("STAR_LIGHTNESS * bodyDim"), "the low end of 亮度 darkens the body's colour instead");
 	assert.ok(clientSource.includes("const alpha = 1;"), "the memory map draws opaque bodies as well");
@@ -1342,6 +1343,29 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		assert.ok(fade(12) * 12 < 1.7 && fade(12) > 0.1, `twelve bodies in one cell sum to ${(fade(12) * 12).toFixed(2)}× a lone halo`);
 	}
 	assert.ok(bundle.includes("const CAPTION_WIDTHS = new Map();"), "caption widths are cached, not measured per frame");
+	// 巡飞的 Agent: a running session leaves its seat and circles outside the shell, blinking.
+	{
+		const ws = { items: [{ workspaceId: "aw", path: "/aw", title: "aw", sessionIds: ["run", "idle"] }], archivedSessionIds: [] };
+		const ss = { ids: ["run", "idle"], byId: {
+			run: { id: "run", displayTitle: "run", cwd: "/aw", updatedAt: Date.now(), running: true },
+			idle: { id: "idle", displayTitle: "idle", cwd: "/aw", updatedAt: Date.now() }
+		} };
+		const sky = createGalaxy(buildGraph(ws, ss, {}), 1, { layout: "galaxy" });
+		const shell = Math.max(...sky.nodes.map((node) => Math.hypot(node.x, node.y, node.z)));
+		const agent = sky.nodes.find((node) => node.id === "run");
+		const radii = [0, 1, 2, 3.7].map((t) => {
+			orbitAgents(sky, t, shell);
+			return Math.hypot(agent.x, agent.y, agent.z);
+		});
+		assert.ok(radii.every((radius) => radius > shell), `the agent flies outside the shell (${radii[0].toFixed(2)} > ${shell.toFixed(2)})`);
+		assert.equal(new Set(radii.map((radius) => radius.toFixed(6))).size, 1, "on an exact circle");
+		const start = { x: agent.x, y: agent.y, z: agent.z };
+		orbitAgents(sky, 5.7, shell);                          // +2 s = 0.84 rad along the track
+		assert.ok(Math.hypot(agent.x - start.x, agent.y - start.y, agent.z - start.z) > 0.8, "and keeps travelling along it");
+		assert.equal(sky.nodes.find((node) => node.id === "idle").agentOrbit, undefined, "idle sessions stay in their seats");
+		assert.ok(bundle.includes("const blink = node.running === true ? 0.55 + 0.45 *"), "with a 0.55–1 blink on body, lift and halo");
+		assert.ok(clientSource.includes("orbitAgents(state.galaxy, state.time, state.shellRadius)"), "driven every frame, in every layout");
+	}
 	// The package is dsh-galaxy-view; a rename must not reset a tuned look.
 	assert.equal(JSON.parse(readFileSync(join(root, "package.json"), "utf8")).name, "dsh-galaxy-view", "package name");
 	assert.ok(bundle.includes("const LEGACY_KEYS = [[\"settings\", STORE_KEY]") && bundle.includes("dsh-graph-view:${suffix}"), "old storage keys are adopted once");

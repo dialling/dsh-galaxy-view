@@ -2,6 +2,13 @@
 
 ## 0.3.0 — 2026-10-26
 
+- **巡飞的 Agent: a working session leaves the shell and circles it, blinking.** `SessionSummary`
+  already carries `running`, and the graph flagged it (`node.running`) without doing anything with
+  it. Now `orbitAgents` — driven every frame for every layout, from the scene clock — moves those
+  bodies onto one tilted great circle at **1.16 × shell radius** (measured: exact radius
+  1.160000 at t = 0/1/2/3.7 s, 0.42 rad/s, ~15 s a lap), so "who is busy" reads from the overview
+  without a label. They blink `0.55 … 1` on their own phase (5.2 rad/s) across body, additive
+  lift and halo, in both the GPU and the Canvas 2D path. Idle sessions keep their seats.
 - **Fix: plugin-registered skills were missing from 记忆库's 技能 list.** Ponytail's optional
   skills (`ponytail-review`, `ponytail-audit`, `ponytail-debt`, `ponytail-gain`, `ponytail-help`)
   are registered through the host's skill service, which means **no `SKILL.md` on disk** — and the

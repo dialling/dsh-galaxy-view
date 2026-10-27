@@ -1872,6 +1872,9 @@ function stepScene(state, delta) {
 	if (settings.layout === "rings" && state.galaxy !== null) orbitRings(state.galaxy, state.time);
 	// 浑天: each ring turns inside its own plane (see orbitSphere), not around one common axis.
 	if (settings.layout === "sphere" && state.galaxy !== null) orbitSphere(state.galaxy, state.time);
+	// 巡飞的 Agent: a session that is working right now circles outside the shell in every layout,
+	// so "who is busy" is visible from the overview without reading a single label.
+	if (state.galaxy !== null) orbitAgents(state.galaxy, state.time, state.shellRadius);
 	stepForces(state);
 	// Fast ease (~70 ms to settle most of a step) so the wheel feels attached to the hand.
 	state.cam.distance += (state.targetDistance - state.cam.distance) * (1 - Math.exp(-seconds * 16));
@@ -2955,7 +2958,7 @@ function renderScene(canvas, state) {
 			const gate = bloomGate(bloomLuminance(starMass(node, settings.sizeBy, state.degree)), threshold);
 			const prox = entry.prox ?? 1;
 			const bandHalo = prox >= 0.66 ? 1 : prox >= 0.33 ? 0.55 : 0.18;
-			const gain = haloGain * pulse * emphasis * fadeOf(node) * (node.archived ? 0.55 : 1) * node._k * bandHalo * crowdFadeOf(entry);
+			const gain = haloGain * pulse * emphasis * fadeOf(node) * (node.archived ? 0.55 : 1) * node._k * bandHalo * crowdFadeOf(entry) * (node.running === true ? 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(state.time * 5.2 + hash01(`blink:${node.id}`) * TAU)) : 1);
 			const innerAlpha = Math.min(1, innerHaloAlpha(entry.dot / 2) * gain * gate * haloArea);
 			// A halo this faint is invisible but still a full-size fill: skip the draw.
 			if (innerAlpha < 0.004) continue;
@@ -2998,6 +3001,9 @@ function renderScene(canvas, state) {
 		const prox = entry.prox ?? 1;
 		const bandCore = prox >= 0.66 ? (lit ? 1 : 0.92) : prox >= 0.33 ? 1 : 0.9;
 		const bandLightness = prox >= 0.66 ? bodyLightness : prox >= 0.33 ? STAR_LIGHTNESS * 0.86 : STAR_LIGHTNESS * 0.5;
+		// 闪动: an agent that is working pulses on the shell track — 0.55 … 1 of its light, a
+		// slow enough beat to read as "alive" rather than as a warning lamp.
+		const blink = node.running === true ? 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(state.time * 5.2 + hash01(`blink:${node.id}`) * TAU)) : 1;
 		// A deep zoom pushes most bodies off the stage; skipping them here also skips the
 		// sprite bake, which is the expensive part.
 		if (entry.x < -entry.dot || entry.x > width + entry.dot || entry.y < -entry.dot || entry.y > height + entry.dot) continue;
@@ -3006,7 +3012,7 @@ function renderScene(canvas, state) {
 		if (glowBodies !== null) {
 			// The shader draws the disc and its white-hot core, so there is no sprite and no
 			// second additive pass: one vertex per body. The selection ring below stays Canvas 2D.
-			glowBodies.push({ x: entry.x, y: entry.y, size: entry.dot, colour: glowColour(entry.hue, bandLightness, entry.tone), core: bandCore, alpha: 1 });
+			glowBodies.push({ x: entry.x, y: entry.y, size: entry.dot, colour: glowColour(entry.hue, bandLightness, entry.tone), core: bandCore, alpha: blink });
 			if (node.current || node.id === state.selectedId || node.id === state.trackId || state.route?.ends?.includes(node.id)) {
 				context.globalAlpha = Math.min(1, (node._dim ? 0.3 : 0.7) * bodyGain);
 				context.strokeStyle = "rgba(214,226,232,0.8)";
@@ -3025,13 +3031,13 @@ function renderScene(canvas, state) {
 		const bodyY = Math.round(entry.y * dprNow - (side * dprNow) / 2) / dprNow;
 		// Brightness lights the body (additive core pass below) instead of thinning it: an
 		// opaque star dims by colour, never by becoming see-through.
-		context.globalAlpha = 1;
+		context.globalAlpha = blink;
 		context.drawImage(spriteImage(sprite.canvas), bodyX, bodyY, side, side);
 		// 星体亮度 moves the body's *light*, not only its opacity: the disc's plateau colour is
 		// already near white (STAR_PEAK), so scaling alpha alone saturates at 1 and leaves every
 		// star looking as faint as it did. An additive second pass always adds a little light
 		// and takes the rest of the slider's range on top of it.
-		const lift = (BODY_CORE_LIFT + BODY_GAIN_LIFT * Math.max(0, bodyGain - 1)) * Math.min(1, bodyGain);
+		const lift = (BODY_CORE_LIFT + BODY_GAIN_LIFT * Math.max(0, bodyGain - 1)) * Math.min(1, bodyGain) * blink;
 		if (lift < 0.02) continue;
 		context.globalCompositeOperation = "lighter";
 		context.globalAlpha = Math.min(1, lift);
