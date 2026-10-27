@@ -366,7 +366,33 @@ function agentBasis() {
 	return { u, v: { x: raw.x / length, y: raw.y / length, z: raw.z / length } };
 }
 
-function orbitAgents(galaxy, seconds, shellRadius) {
+/**
+ * How busy one working agent is, 0…1: a session that wrote 2 s ago is producing, one that has
+ * not moved for a minute is waiting on something. Speed and light follow this, so a stalled
+ * agent crawls dimly and a busy one laps quickly and bright.
+ */
+function agentBusyness(node, now) {
+	const idleSeconds = Math.max(0, (now - (node.updatedAt ?? 0)) / 1000);
+	const activity = 1 / (1 + idleSeconds / 30);
+	return Math.max(0, Math.min(1, 0.3 + 0.7 * activity));
+}
+
+/** Points of the agents' great circle, for the single-agent light band. */
+function agentTrackPoints(shellRadius, segments = 96) {
+	if (!(shellRadius > 0)) return [];
+	const radius = shellRadius * AGENT_ORBIT;
+	const { u, v } = agentBasis();
+	const out = [];
+	for (let i = 0; i < segments; i += 1) {
+		const angle = (i / segments) * TAU;
+		const cos = Math.cos(angle);
+		const sin = Math.sin(angle);
+		out.push({ x: (u.x * cos + v.x * sin) * radius, y: (u.y * cos + v.y * sin) * radius, z: (u.z * cos + v.z * sin) * radius });
+	}
+	return out;
+}
+
+function orbitAgents(galaxy, seconds, shellRadius, now = Date.now()) {
 	if (galaxy === null || !(shellRadius > 0)) return;
 	const radius = shellRadius * AGENT_ORBIT;
 	const { u, v } = agentBasis();
@@ -375,7 +401,10 @@ function orbitAgents(galaxy, seconds, shellRadius) {
 		// The phase comes from the node's index, spread by the golden angle — a hash of the id
 		// put two agents 0.004 rad apart when their ids ended in the same letter.
 		if (node.agentPhase === undefined) node.agentPhase = (node.index ?? 0) * GOLDEN_ANGLE;
-		const angle = node.agentPhase + seconds * AGENT_SPEED;
+		// 忙碌程度: drives both how fast it laps and how bright its pulse is.
+		const busy = agentBusyness(node, now);
+		node.agentBusy = busy;
+		const angle = node.agentPhase + seconds * AGENT_SPEED * (0.55 + 0.9 * busy);
 		const cos = Math.cos(angle);
 		const sin = Math.sin(angle);
 		node.x = (u.x * cos + v.x * sin) * radius;
@@ -1842,6 +1871,7 @@ export {	ARMS,
 	HUES,
 	AGENT_ORBIT,
 	AGENT_SPEED,
+	agentTrackPoints,
 	orbitAgents,
 	SPOKE_CAP,
 	hash01,

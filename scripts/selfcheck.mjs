@@ -16,6 +16,8 @@ import {
 	SKY_BUCKETS,
 	SKY_CLASSES,
 	SPOKE_CAP,
+	AGENT_ORBIT,
+	agentTrackPoints,
 	orbitAgents,
 	SKY_RADIUS,
 	SKY_TINTS,
@@ -1363,14 +1365,31 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		orbitAgents(sky, 5.7, shell);                          // +2 s = 0.84 rad along the track
 		assert.ok(Math.hypot(agent.x - start.x, agent.y - start.y, agent.z - start.z) > 0.8, "and keeps travelling along it");
 		assert.equal(sky.nodes.find((node) => node.id === "idle").agentOrbit, undefined, "idle sessions stay in their seats");
-		assert.ok(bundle.includes("const blink = node.running === true ? 0.55 + 0.45 *"), "with a 0.55–1 blink on body, lift and halo");
+		assert.ok(bundle.includes("const blink = node.running === true") && bundle.includes("3.4 + 4.6 * busy"), "with a busyness-driven blink on body, lift and halo");
 		assert.ok(bundle.includes("if (a.running === true || b.running === true) return false;"), "a flying agent keeps no threads");
+		// 忙碌程度 drives speed and light; a single agent gets its track painted.
+		assert.ok(bundle.includes("const busy = agentBusyness(node, now);") && bundle.includes("AGENT_SPEED * (0.55 + 0.9 * busy)"), "a busier agent laps faster");
+		assert.ok(bundle.includes("state.agentTrack = agents === 1 ? agentTrackPoints(state.shellRadius, 120) : null;"), "one agent gets a light band");
+		{
+			const now = Date.now();
+			const busyOf = (secondsAgo) => {
+				const sky = { nodes: [{ id: "x", running: true, updatedAt: now - secondsAgo * 1000, index: 0 }] };
+				orbitAgents(sky, 0, 1, now);
+				return sky.nodes[0].agentBusy;
+			};
+			const fast = busyOf(2);
+			const slow = busyOf(120);
+			assert.ok(fast > slow + 0.3, `a 2 s-old agent reads busier than a 2 min-old one (${fast.toFixed(2)} vs ${slow.toFixed(2)})`);
+			const track = agentTrackPoints(1, 48);
+			assert.equal(track.length, 48, "the band is a closed ring");
+			assert.ok(track.every((point) => Math.abs(Math.hypot(point.x, point.y, point.z) - AGENT_ORBIT) < 1e-9), "at exactly AGENT_ORBIT");
+		}
 		// The force layer wrote every simulated position back onto the nodes, which dragged a
 		// flying agent off its track and back — the "disappears for a second" flicker.
 		assert.ok(readFileSync(join(root, "src", "physics.js"), "utf8").includes("if (node.running === true) continue;"), "the simulation leaves a flying agent alone");
 		// phase spread: index × golden angle, not an id hash (two ids 0.004 rad apart)
 		assert.ok(bundle.includes("(node.index ?? 0) * GOLDEN_ANGLE") && !bundle.includes("hash01(`agent:"), "agents are spread by index, so they cannot stack");
-		assert.ok(clientSource.includes("orbitAgents(state.galaxy, state.time, state.shellRadius)"), "driven every frame, in every layout");
+		assert.ok(clientSource.includes("orbitAgents(state.galaxy, state.time, state.shellRadius, Date.now())"), "driven every frame, in every layout");
 	}
 	// The package is dsh-galaxy-view; a rename must not reset a tuned look.
 	assert.equal(JSON.parse(readFileSync(join(root, "package.json"), "utf8")).name, "dsh-galaxy-view", "package name");

@@ -2,6 +2,13 @@
 
 ## 0.3.0 — 2026-10-26
 
+- **A single agent gets a light band, and busyness changes the flight.** With exactly one working
+  session the renderer paints its great circle (`agentTrackPoints`, 120 points at exactly
+  1.16 × shell, alpha 0.10) just under the links — one dot orbiting otherwise empty sky told you
+  nothing about what it was moving along. Busyness is read from `updatedAt`
+  (`busy = 0.3 + 0.7 / (1 + idle/30)`) and drives three things: orbit speed (0.42 × (0.55 + 0.9·busy),
+  so 10.6 s a lap when producing against 16.1 s when stalled), the pulse rate (7.8 against 5.3
+  rad/s) and its darkest point (0.59 against 0.51), plus body lightness ×0.88…1.12.
 - **Fix: the flying agent flickered out for about a second.** `stepForces` runs after
   `orbitAgents` and `writeSimulation` copied **every** node's simulated position back — so each
   frame the agent was placed on the shell track and then yanked to its old seat again. Depending

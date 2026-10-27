@@ -1874,7 +1874,11 @@ function stepScene(state, delta) {
 	if (settings.layout === "sphere" && state.galaxy !== null) orbitSphere(state.galaxy, state.time);
 	// 巡飞的 Agent: a session that is working right now circles outside the shell in every layout,
 	// so "who is busy" is visible from the overview without reading a single label.
-	if (state.galaxy !== null) orbitAgents(state.galaxy, state.time, state.shellRadius);
+	if (state.galaxy !== null) orbitAgents(state.galaxy, state.time, state.shellRadius, Date.now());
+	// 只有 1 个 Agent 时给它一条光带：一颗在空荡荡的壳外绕圈，不画出轨道就看不出它在动什么。
+	let agents = 0;
+	if (state.galaxy !== null) for (const node of state.galaxy.nodes) if (node.running === true) agents += 1;
+	state.agentTrack = agents === 1 ? agentTrackPoints(state.shellRadius, 120) : null;
 	stepForces(state);
 	// Fast ease (~70 ms to settle most of a step) so the wheel feels attached to the hand.
 	state.cam.distance += (state.targetDistance - state.cam.distance) * (1 - Math.exp(-seconds * 16));
@@ -2800,6 +2804,30 @@ function renderScene(canvas, state) {
 	const curve = clamp(settings.linkCurve, 0, 2);
 	const widthScale = clamp(settings.linkWidth, 0.2, 4);
 	const linkStyles = linkLook.styles;
+	// 1 个 Agent 的光带: the great circle it laps, painted just before the links so the band sits
+	// under everything else. Drawn only for the single-agent case — with two or more the bodies
+	// themselves show the track.
+	if (state.agentTrack !== null && reveal > 0.15) {
+		context.globalCompositeOperation = "source-over";
+		context.strokeStyle = "rgba(214,232,240,0.10)";
+		context.lineWidth = 1;
+		context.beginPath();
+		let started = false;
+		for (const point of state.agentTrack) {
+			const projected = projectPoint(point, basis, viewport);
+			if (projected === null) {
+				started = false;
+				continue;
+			}
+			if (started) context.lineTo(projected.x, projected.y);
+			else context.moveTo(projected.x, projected.y);
+			started = true;
+		}
+		context.closePath();
+		context.stroke();
+		context.globalAlpha = 1;
+	}
+
 	// 连线密度: `member` spokes are the skeleton and always drawn; `lineage` (a conversation to
 	// its parent) crosses the view between distant stars, so it is context — drawn only when it
 	// touches the selection or the hover.
@@ -2961,7 +2989,7 @@ function renderScene(canvas, state) {
 			const gate = bloomGate(bloomLuminance(starMass(node, settings.sizeBy, state.degree)), threshold);
 			const prox = entry.prox ?? 1;
 			const bandHalo = prox >= 0.66 ? 1 : prox >= 0.33 ? 0.55 : 0.18;
-			const gain = haloGain * pulse * emphasis * fadeOf(node) * (node.archived ? 0.55 : 1) * node._k * bandHalo * crowdFadeOf(entry) * (node.running === true ? 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(state.time * 5.2 + (node.index ?? 0) * 2.399963)) : 1);
+			const gain = haloGain * pulse * emphasis * fadeOf(node) * (node.archived ? 0.55 : 1) * node._k * bandHalo * crowdFadeOf(entry) * (node.running === true ? 0.45 + 0.15 * (node.agentBusy ?? 0.6) + (1 - (0.45 + 0.15 * (node.agentBusy ?? 0.6))) * (0.5 + 0.5 * Math.sin(state.time * (3.4 + 4.6 * (node.agentBusy ?? 0.6)) + (node.index ?? 0) * 2.399963)) : 1);
 			const innerAlpha = Math.min(1, innerHaloAlpha(entry.dot / 2) * gain * gate * haloArea);
 			// A halo this faint is invisible but still a full-size fill: skip the draw.
 			if (innerAlpha < 0.004) continue;
@@ -3003,10 +3031,16 @@ function renderScene(canvas, state) {
 		// with a slightly dimmer rim, and the far sky is dark.
 		const prox = entry.prox ?? 1;
 		const bandCore = prox >= 0.66 ? (lit ? 1 : 0.92) : prox >= 0.33 ? 1 : 0.9;
-		const bandLightness = prox >= 0.66 ? bodyLightness : prox >= 0.33 ? STAR_LIGHTNESS * 0.86 : STAR_LIGHTNESS * 0.5;
+		const baseLightness = prox >= 0.66 ? bodyLightness : prox >= 0.33 ? STAR_LIGHTNESS * 0.86 : STAR_LIGHTNESS * 0.5;
+		const bandLightness = baseLightness * (node.running === true ? 0.88 + 0.24 * (node.agentBusy ?? 0.6) : 1);
 		// 闪动: an agent that is working pulses on the shell track — 0.55 … 1 of its light, a
 		// slow enough beat to read as "alive" rather than as a warning lamp.
-		const blink = node.running === true ? 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(state.time * 5.2 + (node.index ?? 0) * 2.399963)) : 1;
+		// 忙碌程度 changes the pulse itself: a busy agent beats faster and never gets as dim as a
+		// stalled one, so speed and brightness both read as "how much work is happening".
+		const busy = node.running === true ? (node.agentBusy ?? 0.6) : 0;
+		const blink = node.running === true
+			? 0.45 + 0.15 * busy + (1 - (0.45 + 0.15 * busy)) * (0.5 + 0.5 * Math.sin(state.time * (3.4 + 4.6 * busy) + (node.index ?? 0) * 2.399963))
+			: 1;
 		// A deep zoom pushes most bodies off the stage; skipping them here also skips the
 		// sprite bake, which is the expensive part.
 		if (entry.x < -entry.dot || entry.x > width + entry.dot || entry.y < -entry.dot || entry.y > height + entry.dot) continue;
