@@ -1745,6 +1745,20 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		}
 		assert.ok(inbound > 0.4, `and the way home spirals (${((inbound * 180) / Math.PI).toFixed(0)} degrees)`);
 	}
+	{
+		// 重排: a lane at a new radius must not keep samples from the old one.
+		const now = Date.now();
+		const body = { id: "relayout", running: true, updatedAt: now, index: 1, x: 0.35, y: 0.12, z: 0.05 };
+		body.seat = { x: body.x, y: body.y, z: body.z };
+		const galaxy = { nodes: [body] };
+		startAgentLaunch(body, 0, galaxy.nodes, 1);
+		for (let frame = 1; frame <= 110; frame += 1) { body.agentPrev = { x: body.x, y: body.y, z: body.z }; stepAgentLaunches(galaxy, frame / 60, 1); }
+		for (let frame = 1; frame <= 300; frame += 1) { body.agentPrev = { x: body.x, y: body.y, z: body.z }; orbitAgents(galaxy, 1.9 + frame / 60, 1, now, 1); }
+		for (let frame = 1; frame <= 60; frame += 1) { body.agentPrev = { x: body.x, y: body.y, z: body.z }; orbitAgents(galaxy, 6 + frame / 60, 0.6, now, 1); }
+		const radii = body.agentTrail.map((sample) => Math.hypot(sample.x, sample.y, sample.z));
+		const spread = Math.max(...radii) - Math.min(...radii);
+		assert.ok(spread < 0.02, `the tail is rebuilt at the new radius (spread ${spread.toFixed(3)})`);
+	}
 	assert.ok(clientSource.includes("if (stretch > 0.03)") && clientSource.includes("context.rotate(heading)") && clientSource.includes("const along = Math.max(entry.dot * (1 + 2.0 * stretch) * scale, across * 2.4)") && clientSource.includes("const across = entry.dot * (0.56 - 0.16 * stretch) * scale"), "the body is drawn as a rotated drop");
 	// the exit still stretches and still lands outside the seat
 	{

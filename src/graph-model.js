@@ -705,6 +705,14 @@ function orbitAgents(galaxy, seconds, shellRadius, now = Date.now(), speedScale 
 		const slew = Math.min(0.08, Math.max(0.02, dt * 2.5));
 		node.agentStretch = current + Math.max(-slew, Math.min(slew, targetStretch - current));
 			node.agentTail = Math.min(1, (node.agentTail ?? 0) + dt / AGENT_TAIL_GROW);
+		// 重排: after a re-layout the lane sits at a new radius, and samples recorded on the old one no
+		// longer lie behind the body. Drop them so the tail regrows in the new frame instead of hanging
+		// where the body used to be.
+		const lastSample = node.agentTrail?.[node.agentTrail.length - 1];
+		if (lastSample !== undefined && node.agentTrail.length > 3) {
+			const previousRadius = Math.hypot(lastSample.x, lastSample.y, lastSample.z);
+			if (Math.abs(radius - previousRadius) > radius * 0.1) node.agentTrail = [];
+		}
 		// Recorded last, so the newest sample is exactly where the body is: the path can only extend
 		// backwards from it.
 		recordAgentTrail(node, seconds);

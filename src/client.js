@@ -3222,18 +3222,16 @@ function renderScene(canvas, state) {
 		// the sprite cache without bound and froze the view.
 		const stretch = node.agentStretch ?? 0;
 		if (stretch > 0.03) {
-			// Heading from the WORLD velocity projected onto the camera axes — never from the difference
-			// of two projected points. Close to the camera that projection inverts, so the difference
-			// flipped and the drop seemed to spin ~90° for a frame and snap back.
-			const prev = node.agentPrev;
+			// 朝向: the exact screen velocity, recomputed every frame from the carried previous position.
+			//   x = side/depth  ⇒  x' = (side'·depth − side·depth') / depth²
+			// Using the raw projected velocity drops the depth term (a 3–10° bias), and carrying a
+			// screen-space angle across frames goes stale as the camera moves — that was the jolt.
 			let heading = node.agentHeading ?? 0;
+			const prev = node.agentPrev;
 			if (prev !== undefined) {
 				const vx = node.x - prev.x;
 				const vy = node.y - prev.y;
 				const vz = node.z - prev.z;
-				// Exact screen velocity: x = side/depth, so x' = (side'·depth − side·depth') / depth².
-				// Projecting the velocity linearly (side', lift' alone) ignores the depth term, which is a
-				// systematic 5–10° bias whenever the body moves towards or away from the camera.
 				const ex = node.x - basis.eye.x;
 				const ey = node.y - basis.eye.y;
 				const ez = node.z - basis.eye.z;
@@ -3243,18 +3241,13 @@ function renderScene(canvas, state) {
 				const sideV = vx * basis.right.x + vy * basis.right.y + vz * basis.right.z;
 				const liftV = vx * basis.up.x + vy * basis.up.y + vz * basis.up.z;
 				const depthV = vx * basis.forward.x + vy * basis.forward.y + vz * basis.forward.z;
-				const side = depth > 1e-3 ? (sideV * depth - sideAt * depthV) / (depth * depth) : sideV;
-				const lift = depth > 1e-3 ? (liftV * depth - liftAt * depthV) / (depth * depth) : liftV;
-				if (Math.hypot(side, lift) > 2e-9) {
-					const next = Math.atan2(-lift, side);
-					// Reject an implausible single-frame turn: a real one is well under 35°.
-					const turn = node.agentHeading === undefined ? 0 : Math.abs(Math.atan2(Math.sin(next - node.agentHeading), Math.cos(next - node.agentHeading)));
-					if (node.agentHeading === undefined || turn < 0.6) {
-						heading = next;
-						node.agentHeading = next;
-					}
+				if (depth > 1e-3) {
+					const side = (sideV * depth - sideAt * depthV) / (depth * depth);
+					const lift = (liftV * depth - liftAt * depthV) / (depth * depth);
+					if (Math.hypot(side, lift) > 1e-9) heading = Math.atan2(-lift, side);
 				}
 			}
+			node.agentHeading = heading;
 			// 扁平细长: the body is a slim drop, not a fat oval — thinner across than a star both at
 			// rest and in flight, and longer along the heading as the acceleration grows.
 			const scale = clamp(settings.agentScale ?? 1, 0.4, 2.5);
