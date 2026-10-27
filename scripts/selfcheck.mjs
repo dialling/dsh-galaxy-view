@@ -1365,6 +1365,9 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		assert.equal(sky.nodes.find((node) => node.id === "idle").agentOrbit, undefined, "idle sessions stay in their seats");
 		assert.ok(bundle.includes("const blink = node.running === true ? 0.55 + 0.45 *"), "with a 0.55–1 blink on body, lift and halo");
 		assert.ok(bundle.includes("if (a.running === true || b.running === true) return false;"), "a flying agent keeps no threads");
+		// The force layer wrote every simulated position back onto the nodes, which dragged a
+		// flying agent off its track and back — the "disappears for a second" flicker.
+		assert.ok(readFileSync(join(root, "src", "physics.js"), "utf8").includes("if (node.running === true) continue;"), "the simulation leaves a flying agent alone");
 		// phase spread: index × golden angle, not an id hash (two ids 0.004 rad apart)
 		assert.ok(bundle.includes("(node.index ?? 0) * GOLDEN_ANGLE") && !bundle.includes("hash01(`agent:"), "agents are spread by index, so they cannot stack");
 		assert.ok(clientSource.includes("orbitAgents(state.galaxy, state.time, state.shellRadius)"), "driven every frame, in every layout");

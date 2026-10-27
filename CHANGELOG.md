@@ -2,6 +2,14 @@
 
 ## 0.3.0 — 2026-10-26
 
+- **Fix: the flying agent flickered out for about a second.** `stepForces` runs after
+  `orbitAgents` and `writeSimulation` copied **every** node's simulated position back — so each
+  frame the agent was placed on the shell track and then yanked to its old seat again. Depending
+  on where that seat projected, it blinked out and back. `writeSimulation` now skips `running`
+  nodes (the track owns them). Measured over 120 frames with the force layer live: radius
+  **1.0185 … 1.0185** (exactly 1.16 × shell), largest single-frame move **0.0071** against an
+  along-track 0.0081 — no pull-back, no gap. (A body that swings behind the camera when you dive
+  inside the scene is still culled by `depth ≤ 0.08`; that is perspective, not this bug.)
 - **A flying agent keeps no threads.** Links are drawn only between bodies that sit in the graph,
   so `linkVisible` now drops any link touching a `running` node — the thread no longer stretches
   from the shell track back to a seat the agent has left. Probed against the real source: worker ↔
