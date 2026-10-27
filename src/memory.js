@@ -13,7 +13,9 @@
 import { hash01 } from "./graph-model.js";
 
 /** The one authenticated RPC channel the Node half serves. */
-const MEMORY_CHANNEL = "/dsh-galaxy-view";
+// Not the plugin id: the web server already owns `/dsh-galaxy-view/*` for this plugin's
+// assets, and a POST there answers 405 before our route ever runs.
+const MEMORY_CHANNEL = "/dsh-galaxy-view-rpc";
 
 /**
  * 记忆库's look is SETTLED — the owner approved it (2026-10) and asked that it not be

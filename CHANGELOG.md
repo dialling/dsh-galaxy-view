@@ -2,6 +2,14 @@
 
 ## 0.3.0 — 2026-10-26
 
+- **Fix: 记忆库 failed to load after the rename — the RPC channel collided with the plugin's asset
+  path.** The memory route was registered at `/dsh-galaxy-view` — the same prefix the web server
+  owns for this plugin's files, so a POST there is answered **405** before the route runs. (The
+  pre-rename build was still serving `/dsh-graph-view`, which answered **401** — proof the route
+  works when the prefix is free.) The channel is now `/dsh-galaxy-view-rpc` on both halves, and
+  `selfcheck` asserts the two agree *and* that the channel is not the plugin id. A stale Node half
+  now also reports itself: a 404 from the route surfaces 记忆库's 「Node 半包还是旧版本…」 instead
+  of a bare 读取失败.
 - **回归动画 + 公转拖尾, and the patch file is now checked.** When an agent stops working it no
   longer teleports: `startAgentReturn` remembers the track position and the seat it left, and
   `stepAgentReturns` eases it home over **0.85 s** (`1 − (1−t)³`; measured 1.018 → 0.621 → 0.645 →

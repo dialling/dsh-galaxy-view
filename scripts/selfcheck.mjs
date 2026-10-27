@@ -1399,6 +1399,16 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 	}
 	// The package is dsh-galaxy-view; a rename must not reset a tuned look.
 	assert.equal(JSON.parse(readFileSync(join(root, "package.json"), "utf8")).name, "dsh-galaxy-view", "package name");
+		// Both halves must agree on the RPC channel; a rename that touched one side only made the
+		// 记忆库 fail with a bare "读取失败" (the Node half answered 404 on the old path).
+		{
+			const clientChannel = readFileSync(join(root, "src", "memory.js"), "utf8").match(/const MEMORY_CHANNEL = "([^"]+)";/)?.[1];
+			const hostChannel = readFileSync(join(root, "lib", "index.js"), "utf8").match(/const CHANNEL = "([^"]+)";/)?.[1];
+			assert.equal(clientChannel, "/dsh-galaxy-view-rpc", "the browser half calls the renamed channel");
+			assert.notEqual(clientChannel, "/dsh-galaxy-view", "and not the plugin id itself: that path belongs to the web server's assets");
+			assert.equal(hostChannel, clientChannel, "and the Node half serves the same one");
+			assert.ok(bundle.includes('translate("mem.stale")') && bundle.includes("mem.stale"), "a stale Node half is reported in words, not as a bare failure");
+		}
 	// The patch file uses `!!js` tags, which no plain YAML parser accepts — check its shape here
 	// instead, so a rename cannot leave the manifest row behind.
 	{

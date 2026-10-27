@@ -226,6 +226,7 @@ const zh = {
 	"mem.loading": "正在读取记忆库…",
 	"mem.scanning": "正在扫描会话日志…",
 	"mem.error": "记忆库读取失败",
+	"mem.stale": "Node 半包还是旧版本（路由未注册）。请完全退出 DSH（⌘Q）后重新打开，刷新页面不够。",
 	"mem.retry": "重试",
 	"mem.refresh": "重新读取",
 	"mem.offline": "宿主没有提供 connection 服务：Node 端需要重启 DSH 后才会挂上。",
@@ -470,6 +471,7 @@ const en = {
 	"mem.loading": "Reading the memory library…",
 	"mem.scanning": "Scanning session logs…",
 	"mem.error": "The memory library could not be read",
+	"mem.stale": "The Node half is still an older build (its route is missing). Quit DSH (⌘Q) and reopen: a page refresh is not enough.",
 	"mem.retry": "Retry",
 	"mem.refresh": "Read again",
 	"mem.offline": "This host exposes no connection service: the Node half needs a DSH restart to mount.",
@@ -4779,7 +4781,11 @@ function MemoryPage(props) {
 		} catch (error) {
 			if (!aliveRef.current) return;
 			const code = error?.code ?? "internal";
-			setFailure({ code, message: code === "offline" ? translate("mem.offline") : error?.message ?? String(error) });
+			const message =
+				code === "offline" ? translate("mem.offline")
+					: code === "stale-host" ? translate("mem.stale")
+						: error?.message ?? String(error);
+			setFailure({ code, message });
 			setPhase("error");
 		}
 	}, [memory]);
@@ -5175,7 +5181,18 @@ function memoryCaller(ctx) {
 	return async (endpoint, payload) => {
 		const connection = ctx.get("connection");
 		if (connection === null || connection === undefined || typeof connection.rpc?.call !== "function") throw Object.assign(new Error("no connection service"), { code: "offline", details: {} });
-		const result = await connection.rpc.call(MEMORY_CHANNEL, endpoint, payload ?? {});
+		let result;
+		try {
+			result = await connection.rpc.call(MEMORY_CHANNEL, endpoint, payload ?? {});
+		} catch (error) {
+			// The route lives under MEMORY_CHANNEL on the Node half. A 404 there means the half
+			// loaded is an older build (HMR keeps the previous module until a real restart), so
+			// name the remedy rather than reporting a generic read failure.
+			if (/not.?found|404/i.test(String(error?.message ?? ""))) {
+				throw Object.assign(new Error("stale-host"), { code: "stale-host", details: {} });
+			}
+			throw error;
+		}
 		if (result?.ok === true) return result.value;
 		const error = result?.error ?? {};
 		throw Object.assign(new Error(error.message ?? `memory ${endpoint} failed`), { code: error.code ?? "internal", details: error.details ?? {} });
