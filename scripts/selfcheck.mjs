@@ -18,6 +18,8 @@ import {
 	SPOKE_CAP,
 	AGENT_ORBIT,
 	agentTrackPoints,
+	startAgentLaunch,
+	stepAgentLaunches,
 	orbitAgents,
 	SKY_RADIUS,
 	SKY_TINTS,
@@ -1367,6 +1369,31 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		assert.equal(sky.nodes.find((node) => node.id === "idle").agentOrbit, undefined, "idle sessions stay in their seats");
 		assert.ok(bundle.includes("const blink = node.running === true") && bundle.includes("3.4 + 4.6 * busy"), "with a busyness-driven blink on body, lift and halo");
 		assert.ok(bundle.includes("if (a.running === true || b.running === true) return false;"), "a flying agent keeps no threads");
+		// 水滴形: launch/return stretch the body along its motion; cruising keeps a small breathing one.
+		assert.ok(bundle.includes("const LAUNCH_SECONDS = 0.7;") && bundle.includes("function stepAgentLaunches("), "the exit is a flight, not a pop");
+		assert.ok(bundle.includes("node.agentStretch = Math.sin(Math.PI * t);"), "and both travel legs stretch on the same sine curve");
+		assert.ok(bundle.includes("node.agentStretch = 0.10 + 0.05 * Math.sin(seconds * 2.3 + node.agentPhase);"), "cruising keeps a small breathing stretch");
+		assert.ok(clientSource.includes("if (stretch > 0.03)") && clientSource.includes("context.rotate(heading)") && clientSource.includes("const along = entry.dot * (1 + 1.15 * stretch)"), "the body is drawn as a rotated drop");
+		{
+			// stretch peaks mid-flight and returns to the cruise value at both ends
+			const now = Date.now();
+			const ws = { items: [{ workspaceId: "dw", path: "/dw", title: "dw", sessionIds: ["da"] }], archivedSessionIds: [] };
+			const ss = { ids: ["da"], byId: { da: { id: "da", displayTitle: "da", cwd: "/dw", updatedAt: now, running: true } } };
+			const sky = createGalaxy(buildGraph(ws, ss, {}), 1, { layout: "galaxy" });
+			const shell = Math.max(...sky.nodes.map((node) => Math.hypot(node.x, node.y, node.z)));
+			const body = sky.nodes.find((node) => node.id === "da");
+			orbitAgents(sky, 0, shell, now);
+			const seatRadius = Math.hypot(body.x, body.y, body.z);
+			startAgentLaunch(body, 0);
+			const curve = [0.05, 0.2, 0.35, 0.5, 0.65].map((t) => {
+				stepAgentLaunches(sky, t, shell);
+				return body.agentStretch;
+			});
+			assert.ok(curve[2] > 0.95, `the stretch peaks mid-flight (${curve[2].toFixed(2)})`);
+			assert.ok(curve[0] < 0.5 && curve[4] < 0.95, "and relaxes at both ends");
+			stepAgentLaunches(sky, 0.75, shell);
+			assert.ok(Math.hypot(body.x, body.y, body.z) > seatRadius, "the body ends up outside the seat radius");
+		}
 		// 回归: a finished agent glides home instead of teleporting.
 		assert.ok(bundle.includes("const RETURN_SECONDS = 0.85;") && bundle.includes("function startAgentReturn("), "the return glide exists");
 		assert.ok(clientSource.includes("startAgentReturn(node, state.time)") && clientSource.includes("stepAgentReturns(state.galaxy, state.time)"), "and the frame loop starts and steps it");

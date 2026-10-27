@@ -1885,6 +1885,14 @@ function stepScene(state, delta) {
 	if (state.galaxy !== null) {
 		// 回归: an agent that stopped working glides from the track back to its seat. Detected here
 		// because only the frame loop sees the transition.
+		// 运动方向: the previous frame's position gives the velocity the drop stretches along.
+		for (const node of state.galaxy.nodes) {
+			if (node.running === true || node.agentOrbit === true || node.returningFrom !== undefined || node.launchFrom !== undefined) {
+				node.agentPrev = { x: node.x, y: node.y, z: node.z };
+			} else if (node.agentPrev !== undefined) {
+				node.agentPrev = undefined;
+			}
+		}
 		const flying = state.flyingAgents ?? (state.flyingAgents = new Set());
 		for (const node of state.galaxy.nodes) {
 			if (node.running === true) {
@@ -1892,8 +1900,13 @@ function stepScene(state, delta) {
 			} else if (flying.delete(node.id) && node.agentOrbit === true) {
 				startAgentReturn(node, state.time);
 			}
+			if (node.running === true && node.agentOrbit !== true && node.launchFrom === undefined && node.seat !== undefined) {
+				// 出发: the body flies out of its seat (and stretches on the way).
+				startAgentLaunch(node, state.time);
+			}
 		}
 		orbitAgents(state.galaxy, state.time, state.shellRadius, Date.now());
+		stepAgentLaunches(state.galaxy, state.time, state.shellRadius);
 		stepAgentReturns(state.galaxy, state.time);
 		// 拖尾: samples are timestamped and pruned by both count and age, so nothing from a seat,
 		// a previous flight or a pause can survive into the current one.
@@ -3126,6 +3139,35 @@ function renderScene(canvas, state) {
 		if (entry.x < -entry.dot || entry.x > width + entry.dot || entry.y < -entry.dot || entry.y > height + entry.dot) continue;
 		// 完全不透明: a body is opaque whatever the band, the lens or the reveal — the shade is
 		// carried by its colour instead (band lightness, 亮度, the lens' own fade stays on links).
+		// 水滴形: an agent in flight is drawn as a stretched drop along its own motion — long while it
+		// accelerates out or home, round while it cruises (a 0.10 breathing stretch only).
+		const stretch = node.agentStretch ?? 0;
+		if (stretch > 0.03) {
+			const prev = node.agentPrev;
+			const back = prev === undefined ? null : projectPoint(prev, basis, viewport);
+			// Screen-space heading from the previous frame to this one.
+			const heading = back === null ? 0 : Math.atan2(entry.y - back.y, entry.x - back.x);
+			const along = entry.dot * (1 + 1.15 * stretch);
+			const across = entry.dot * (1 - 0.34 * stretch);
+			const sprite = discSprite(entry.hue, Math.max(4, Math.round(entry.dot * dprNow) / 1), bandCore, bandLightness, entry.tone);
+			const side = sprite.size / dprNow;
+			context.save();
+			context.translate(entry.x, entry.y);
+			context.rotate(heading);
+			context.globalAlpha = blink;
+			// The body: an ellipse stretched along the heading.
+			context.drawImage(spriteImage(sprite.canvas), (-along / 2) * (side / entry.dot), (-across / 2) * (side / entry.dot), along * (side / entry.dot), across * (side / entry.dot));
+			// The head: a smaller disc at the leading edge, so the shape reads as a drop, not an oval.
+			context.globalAlpha = Math.min(1, blink * 0.85);
+			context.drawImage(spriteImage(sprite.canvas), along * 0.18 - (entry.dot * 0.42) / 2, -entry.dot * 0.42 / 2, entry.dot * 0.42, entry.dot * 0.42);
+			// Additive rim light at the tail, the comet's tail fading backwards.
+			context.globalCompositeOperation = "lighter";
+			context.globalAlpha = Math.min(1, 0.28 * stretch * blink);
+			context.drawImage(spriteImage(sprite.canvas), -along * 0.5, -across * 0.42, along * 0.62, across * 0.84);
+			context.globalCompositeOperation = "source-over";
+			context.restore();
+			continue;
+		}
 		if (glowBodies !== null) {
 			// The shader draws the disc and its white-hot core, so there is no sprite and no
 			// second additive pass: one vertex per body. The selection ring below stays Canvas 2D.

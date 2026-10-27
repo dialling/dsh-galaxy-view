@@ -2,6 +2,15 @@
 
 ## 0.3.0 — 2026-10-26
 
+- **水滴形: the flying body deforms with its acceleration.** Exit and entry are now real flights —
+  `startAgentLaunch` / `stepAgentLaunches` glide the body from its seat onto the track over
+  **0.7 s** (measured: radius 0.878 → 0.532 → 1.018, i.e. it leaves the seat, crosses the
+  interior and arrives outside), so the exit no longer pops into place. Both legs stretch the body
+  on the same `sin(πt)` curve — **peak 1.00 mid-flight**, 0.06 at rest — while cruising keeps a
+  `0.10 ± 0.05` breathing stretch along the tangent. The render draws those bodies as a **rotated
+  drop**: the disc stretched `1 + 1.15·stretch` along the screen heading and squeezed
+  `1 − 0.34·stretch` across it, a leading head disc so it reads as a drop rather than an oval, and
+  an additive rim light at the tail. Stretch ≤ 0.03 keeps the ordinary disc/GPU path.
 - **拖尾: fixed the ghost, tinted it with the body, and made it carry the workload.** The old buffer
   was count-only, so a frame recorded before the body left (or during the glide home) could survive
   into the next flight — the tail hung in space before the agent arrived. Samples are now

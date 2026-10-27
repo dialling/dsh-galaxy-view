@@ -383,6 +383,45 @@ function agentBusyness(node, now) {
  * body; the position is an ease-out so it arrives softly, not braking at the last frame.
  */
 const RETURN_SECONDS = 0.85;
+const LAUNCH_SECONDS = 0.7;
+
+/**
+ * 出发: the flight out. The agent glides from its seat onto the track instead of appearing there —
+ * which is also what gives the exit its stretch, the same way the return does.
+ */
+function startAgentLaunch(node, seconds) {
+	node.launchFrom = node.seat ?? { x: node.x, y: node.y, z: node.z };
+	node.launchAt = seconds;
+}
+
+function stepAgentLaunches(galaxy, seconds, shellRadius) {
+	if (galaxy === null) return;
+	const radius = shellRadius * AGENT_ORBIT;
+	const { u, v } = agentBasis();
+	for (const node of galaxy.nodes) {
+		if (node.launchFrom === undefined) continue;
+		const t = Math.min(1, (seconds - node.launchAt) / LAUNCH_SECONDS);
+		const ease = t * t * (3 - 2 * t);
+		const angle = (node.agentPhase ?? 0) + seconds * AGENT_SPEED * (0.55 + 0.9 * (node.agentBusy ?? 0.6));
+		const target = {
+			x: (u.x * Math.cos(angle) + v.x * Math.sin(angle)) * radius,
+			y: (u.y * Math.cos(angle) + v.y * Math.sin(angle)) * radius,
+			z: (u.z * Math.cos(angle) + v.z * Math.sin(angle)) * radius
+		};
+		const from = node.launchFrom;
+		node.x = from.x + (target.x - from.x) * ease;
+		node.y = from.y + (target.y - from.y) * ease;
+		node.z = from.z + (target.z - from.z) * ease;
+		// 水滴形: fastest in the middle of the flight, which is exactly where it stretches most.
+		node.agentStretch = Math.sin(Math.PI * t);
+		if (t >= 1) {
+			node.launchFrom = undefined;
+			node.launchAt = undefined;
+			node.agentOrbit = true;
+			node.agentStretch = 0.06;
+		}
+	}
+}
 
 function startAgentReturn(node, seconds) {
 	node.returningFrom = { x: node.x, y: node.y, z: node.z };
@@ -403,6 +442,8 @@ function stepAgentReturns(galaxy, seconds) {
 		node.y = from.y + (to.y - from.y) * ease;
 		node.z = from.z + (to.z - from.z) * ease;
 		node.agentReturn = 1 - ease;
+		// 水滴形 on the way home: the same sin curve, so entry and exit match.
+		node.agentStretch = Math.sin(Math.PI * t);
 		if (t >= 1) {
 			node.returningFrom = undefined;
 			node.returningTo = undefined;
@@ -434,7 +475,7 @@ function orbitAgents(galaxy, seconds, shellRadius, now = Date.now()) {
 	const radius = shellRadius * AGENT_ORBIT;
 	const { u, v } = agentBasis();
 	for (const node of galaxy.nodes) {
-		if (node.running !== true) continue;
+		if (node.running !== true || node.launchFrom !== undefined) continue;
 		// The phase comes from the node's index, spread by the golden angle — a hash of the id
 		// put two agents 0.004 rad apart when their ids ended in the same letter.
 		if (node.agentPhase === undefined) node.agentPhase = (node.index ?? 0) * GOLDEN_ANGLE;
@@ -444,6 +485,7 @@ function orbitAgents(galaxy, seconds, shellRadius, now = Date.now()) {
 		// The seat it leaves: the return animation glides back to this, not to a re-laid-out spot.
 		if (node.seat === undefined) node.seat = { x: node.x, y: node.y, z: node.z };
 		const angle = node.agentPhase + seconds * AGENT_SPEED * (0.55 + 0.9 * busy);
+		node.agentStretch = 0.10 + 0.05 * Math.sin(seconds * 2.3 + node.agentPhase);
 		const cos = Math.cos(angle);
 		const sin = Math.sin(angle);
 		node.x = (u.x * cos + v.x * sin) * radius;
@@ -1910,7 +1952,10 @@ export {	ARMS,
 	HUES,
 	AGENT_ORBIT,
 	AGENT_SPEED,
+	LAUNCH_SECONDS,
 	RETURN_SECONDS,
+	startAgentLaunch,
+	stepAgentLaunches,
 	startAgentReturn,
 	stepAgentReturns,
 	agentTrackPoints,
