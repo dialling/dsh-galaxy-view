@@ -1371,8 +1371,8 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		assert.ok(bundle.includes("const RETURN_SECONDS = 0.85;") && bundle.includes("function startAgentReturn("), "the return glide exists");
 		assert.ok(clientSource.includes("startAgentReturn(node, state.time)") && clientSource.includes("stepAgentReturns(state.galaxy, state.time)"), "and the frame loop starts and steps it");
 		// 拖尾: the last second of the track, drawn as fading segments.
-		assert.ok(bundle.includes("const AGENT_TRAIL = 22;") && clientSource.includes("state.agentTrails"), "each agent keeps a trail of its own path");
-		assert.ok(clientSource.includes("0.32 * share * share") && clientSource.includes("context.lineWidth = 0.6 + 1.6 * share"), "the tail fades and narrows");
+		assert.ok(bundle.includes("const AGENT_TRAIL_MAX = 42;") && clientSource.includes("state.agentTrails"), "each agent keeps a trail of its own path");
+		assert.ok(clientSource.includes("peak * share * share") && clientSource.includes("starPlateau(node?.hue ?? 200") && clientSource.includes("AGENT_TRAIL_MIN + (AGENT_TRAIL_MAX - AGENT_TRAIL_MIN) * busyNow"), "the tail fades, narrows, wears the body colour and grows with the work");
 		// 忙碌程度 drives speed and light; a single agent gets its track painted.
 		assert.ok(bundle.includes("const busy = agentBusyness(node, now);") && bundle.includes("AGENT_SPEED * (0.55 + 0.9 * busy)"), "a busier agent laps faster");
 		assert.ok(bundle.includes("state.agentTrack = agents === 1 ? agentTrackPoints(state.shellRadius, 120) : null;"), "one agent gets a light band");

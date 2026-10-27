@@ -693,8 +693,11 @@ function glowLayerFor(state, canvas) {
 	return layer;
 }
 
-/** Samples kept per agent for the 拖尾: ~1 s at 60 fps with the 0.004 step guard. */
-const AGENT_TRAIL = 22;
+/** 拖尾 bounds: a stalled agent drags a short, dim tail; a busy one a long, bright one. */
+const AGENT_TRAIL_MIN = 8;
+const AGENT_TRAIL_MAX = 42;
+const AGENT_TRAIL_SECONDS_MIN = 0.25;
+const AGENT_TRAIL_SECONDS_MAX = 1.6;
 
 const CAPTION_WIDTHS = new Map();
 function captionWidth(context, text, size, weight) {
@@ -1892,19 +1895,26 @@ function stepScene(state, delta) {
 		}
 		orbitAgents(state.galaxy, state.time, state.shellRadius, Date.now());
 		stepAgentReturns(state.galaxy, state.time);
-		// 拖尾: keep the last second of each track so the body draws its own light behind it.
+		// 拖尾: samples are timestamped and pruned by both count and age, so nothing from a seat,
+		// a previous flight or a pause can survive into the current one.
 		const trail = state.agentTrails ?? (state.agentTrails = new Map());
 		for (const node of state.galaxy.nodes) {
-			if (node.agentOrbit !== true) {
+			// Only a body that is genuinely out on the track records: not while it glides home,
+			// and not before it has left.
+			if (node.agentOrbit !== true || node.returningFrom !== undefined) {
 				trail.delete(node.id);
 				continue;
 			}
 			const path = trail.get(node.id) ?? [];
 			const last = path[path.length - 1];
 			if (last === undefined || Math.hypot(node.x - last.x, node.y - last.y, node.z - last.z) > 0.004) {
-				path.push({ x: node.x, y: node.y, z: node.z });
-				if (path.length > AGENT_TRAIL) path.shift();
+				path.push({ x: node.x, y: node.y, z: node.z, t: state.time });
 			}
+			// 长度 follows the work: a busy agent drags a long tail, a stalled one a short one.
+			const busyNow = node.agentBusy ?? 0.6;
+			const keep = Math.round(AGENT_TRAIL_MIN + (AGENT_TRAIL_MAX - AGENT_TRAIL_MIN) * busyNow);
+			const oldest = state.time - (AGENT_TRAIL_SECONDS_MIN + AGENT_TRAIL_SECONDS_MAX * busyNow);
+			while (path.length > keep || (path.length > 0 && path[0].t < oldest)) path.shift();
 			trail.set(node.id, path);
 		}
 	}
@@ -2827,15 +2837,28 @@ function renderScene(canvas, state) {
 	if (state.agentTrails !== undefined && state.agentTrails.size > 0 && reveal > 0.15) {
 		context.globalCompositeOperation = "lighter";
 		context.lineCap = "round";
-		for (const path of state.agentTrails.values()) {
+		for (const [id, path] of state.agentTrails) {
 			if (path.length < 2) continue;
+			const node = galaxyNodes.find((candidate) => candidate.id === id);
+			// 星体原本的色彩: the tail is the body's own light, not a white wire.
+			const tint = starPlateau(node?.hue ?? 200, undefined, node?.tone);
+			const busy = node?.agentBusy ?? 0.6;
+			const peak = 0.22 + 0.5 * busy;
 			for (let index = 1; index < path.length; index += 1) {
 				const from = projectPoint(path[index - 1], basis, viewport);
 				const to = projectPoint(path[index], basis, viewport);
 				if (from === null || to === null) continue;
 				const share = index / path.length;
-				context.strokeStyle = `rgba(206, 230, 242, ${(0.32 * share * share).toFixed(3)})`;
-				context.lineWidth = 0.6 + 1.6 * share;
+				// Two layers: a soft wide halo under a bright thin core, so the tail reads as light
+				// rather than as a line.
+				context.strokeStyle = `rgba(${tint[0]}, ${tint[1]}, ${tint[2]}, ${(peak * 0.34 * share * share).toFixed(3)})`;
+				context.lineWidth = 2 + 4.5 * share * (0.7 + 0.6 * busy);
+				context.beginPath();
+				context.moveTo(from.x, from.y);
+				context.lineTo(to.x, to.y);
+				context.stroke();
+				context.strokeStyle = `rgba(${tint[0]}, ${tint[1]}, ${tint[2]}, ${(peak * share * share).toFixed(3)})`;
+				context.lineWidth = 0.8 + 1.9 * share;
 				context.beginPath();
 				context.moveTo(from.x, from.y);
 				context.lineTo(to.x, to.y);

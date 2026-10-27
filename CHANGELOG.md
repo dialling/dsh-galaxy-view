@@ -2,6 +2,15 @@
 
 ## 0.3.0 — 2026-10-26
 
+- **拖尾: fixed the ghost, tinted it with the body, and made it carry the workload.** The old buffer
+  was count-only, so a frame recorded before the body left (or during the glide home) could survive
+  into the next flight — the tail hung in space before the agent arrived. Samples are now
+  timestamped, recorded only while the body is genuinely out (`agentOrbit && !returningFrom`), and
+  pruned by **both** count and age. Colour comes from the body itself
+  (`starPlateau(node.hue, undefined, node.tone)`), drawn in two layers — a wide soft halo under a
+  bright thin core — and its size follows work pressure: samples **22 → 41** and age window
+  **0.93 s → 1.78 s**, peak alpha **0.43 → 0.70**, widest stroke **6.3 → 7.7 px** as an agent goes
+  from stalled to producing.
 - **Fix: 记忆库 failed to load after the rename — the RPC channel collided with the plugin's asset
   path.** The memory route was registered at `/dsh-galaxy-view` — the same prefix the web server
   owns for this plugin's files, so a POST there is answered **405** before the route runs. (The
