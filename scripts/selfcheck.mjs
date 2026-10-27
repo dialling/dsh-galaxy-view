@@ -1435,6 +1435,42 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		assert.ok(clientSource.includes("const agentState = state.agentState ?? (state.agentState = new Map());") && clientSource.includes("agentState.set(node.id, {"), "per-agent state is carried by id across graphs");
 		assert.ok(clientSource.includes("agentPos: { x: node.x, y: node.y, z: node.z }"), "including the position it was flying at");
 		assert.ok(bundle.includes("function startAgentReturn(node, seconds, from = null)"), "and the return can be told where to start");
+	// 扁平细长 + 不透明 + 尾部同色更白
+	assert.ok(clientSource.includes("const across = entry.dot * (0.74 - 0.24 * stretch)"), "the body is slimmer than a star");
+	assert.ok(clientSource.includes("context.globalAlpha = 1;\n\t\t\tcontext.fillStyle = `rgb(${tint[0]}, ${tint[1]}, ${tint[2]})`;"), "and drawn opaque — the blink rides on the halo, not the material");
+	assert.ok(clientSource.includes("body.map((channel) => Math.round(channel + (255 - channel) * 0.42))"), "the tail keeps the body's hue, pulled towards white");
+	{
+		const bez = (p0, p1, p2, p3, t) => {
+			const u = 1 - t;
+			return {
+				x: u * u * u * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * p3[0],
+				y: u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1]
+			};
+		};
+		const silhouette = (stretch) => {
+			const dot = 10;
+			const across = dot * (0.74 - 0.24 * stretch);
+			const along = Math.max(dot * (1 + 1.5 * stretch), across * 1.9);
+			const head = across * 0.5;
+			const tail = along * 0.5;
+			const waist = across * 0.5;
+			const noseCentre = along * 0.5 - head;
+			const points = [];
+			for (let i = 0; i <= 80; i += 1) points.push(bez([-tail, 0], [-tail * 0.2, -waist], [noseCentre - head * 0.55, -head], [noseCentre, -head], i / 80));
+			for (let i = 0; i <= 40; i += 1) {
+				const a = -Math.PI / 2 + (i / 40) * Math.PI;
+				points.push({ x: noseCentre + Math.cos(a) * head, y: Math.sin(a) * head });
+			}
+			for (let i = 0; i <= 80; i += 1) points.push(bez([noseCentre, head], [noseCentre - head * 0.55, head], [-tail * 0.2, waist], [-tail, 0], i / 80));
+			const xs = points.map((point) => point.x);
+			const ys = points.map((point) => point.y);
+			return { aspect: (Math.max(...xs) - Math.min(...xs)) / (Math.max(...ys) - Math.min(...ys)), height: Math.max(...ys) - Math.min(...ys) };
+		};
+		const cruise = silhouette(0.1);
+		const flight = silhouette(1);
+		assert.ok(cruise.aspect > 1.6 && flight.aspect > 4.5, `a slim, long drop (${cruise.aspect.toFixed(2)} cruising, ${flight.aspect.toFixed(2)} in flight)`);
+		assert.ok(flight.height < 6, `and flat across the heading (${flight.height.toFixed(1)} px at dot 10)`);
+	}
 	// 锁定 must not be dropped by anything but an explicit release.
 	assert.ok(clientSource.includes("state.lockWanted = true;") && clientSource.includes("state.lockWanted = false;"), "the lock is a user intent");
 	assert.ok(clientSource.includes("if (state.lockWanted === true && state.trackId === null && state.selectedId !== null"), "and re-arms itself when something drops it");
@@ -1442,7 +1478,7 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 	assert.ok(clientSource.includes("const flying = node.launchFrom !== undefined || node.agentOrbit === true || node.returningFrom !== undefined;"), "the tail records launch, lap and return");
 		assert.ok(bundle.includes("node.agentStretch = Math.sin(Math.PI * t);"), "and both travel legs stretch on the same sine curve");
 		assert.ok(bundle.includes("node.agentStretch = 0.10 + 0.05 * Math.sin(seconds * 2.3 + node.agentPhase);"), "cruising keeps a small breathing stretch");
-		assert.ok(clientSource.includes("if (stretch > 0.03)") && clientSource.includes("context.rotate(heading)") && clientSource.includes("const along = Math.max(entry.dot * (1 + 1.15 * stretch), across * 1.35)"), "the body is drawn as a rotated drop");
+		assert.ok(clientSource.includes("if (stretch > 0.03)") && clientSource.includes("context.rotate(heading)") && clientSource.includes("const along = Math.max(entry.dot * (1 + 1.5 * stretch), across * 1.9)") && clientSource.includes("const across = entry.dot * (0.74 - 0.24 * stretch)"), "the body is drawn as a rotated drop");
 		{
 			// stretch peaks mid-flight and returns to the cruise value at both ends
 			const now = Date.now();

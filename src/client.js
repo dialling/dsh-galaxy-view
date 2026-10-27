@@ -2896,9 +2896,11 @@ function renderScene(canvas, state) {
 			if (path.length < 2) continue;
 			const node = galaxyNodes.find((candidate) => candidate.id === id);
 			// 星体原本的色彩: the tail is the body's own light, not a white wire.
-			const tint = starPlateau(node?.hue ?? 200, undefined, node?.tone);
+			const body = starPlateau(node?.hue ?? 200, undefined, node?.tone);
+			// 同色但更白更亮: the same hue as the body, pulled 42 % towards white and brightened.
+			const tint = body.map((channel) => Math.round(channel + (255 - channel) * 0.42));
 			const busy = node?.agentBusy ?? 0.6;
-			const peak = 0.22 + 0.5 * busy;
+			const peak = 0.34 + 0.5 * busy;
 			for (let index = 1; index < path.length; index += 1) {
 				const from = projectPoint(path[index - 1], basis, viewport);
 				const to = projectPoint(path[index], basis, viewport);
@@ -3168,10 +3170,10 @@ function renderScene(canvas, state) {
 			const prev = node.agentPrev;
 			const back = prev === undefined ? null : projectPoint(prev, basis, viewport);
 			const heading = back === null ? 0 : Math.atan2(entry.y - back.y, entry.x - back.x);
-			const across = entry.dot * (1 - 0.34 * stretch);
-			// A floor on the elongation: on a 3 px star a "1.15×" drop looked like a plain circle
-			// (sweep: aspect 1.00 at dot 3), so even the smallest flying body stays visibly tapered.
-			const along = Math.max(entry.dot * (1 + 1.15 * stretch), across * 1.35);
+			// 扁平细长: the body is a slim drop, not a fat oval — thinner across than a star both at
+			// rest and in flight, and longer along the heading as the acceleration grows.
+			const across = entry.dot * (0.74 - 0.24 * stretch);
+			const along = Math.max(entry.dot * (1 + 1.5 * stretch), across * 1.9);
 			const tint = starPlateau(entry.hue, undefined, entry.tone);
 			// ONE closed path: a round head at the leading edge with two flanks sweeping back to a
 			// point. Two separate fills (an oval plus a circle) read as two blobs whenever the head
@@ -3182,7 +3184,8 @@ function renderScene(canvas, state) {
 			context.save();
 			context.translate(entry.x, entry.y);
 			context.rotate(heading);
-			context.globalAlpha = blink;
+			// 不透明: the body is solid material — the blink belongs to its halo and its tail.
+			context.globalAlpha = 1;
 			context.fillStyle = `rgb(${tint[0]}, ${tint[1]}, ${tint[2]})`;
 			context.beginPath();
 			// A circular head at the nose, with two tangent flanks sweeping back to one point — a
@@ -3196,8 +3199,8 @@ function renderScene(canvas, state) {
 			context.closePath();
 			context.fill();
 			// A white-hot point at the head, so the shape reads as a drop with weight in front.
-			context.globalAlpha = Math.min(1, blink * (0.4 + 0.5 * bandCore));
-			context.fillStyle = "rgba(255, 252, 244, 0.9)";
+			context.globalAlpha = 1;
+			context.fillStyle = "rgba(255, 252, 244, 0.96)";
 			context.beginPath();
 			context.arc(noseCentre, 0, head * 0.46, 0, TAU);
 			context.fill();

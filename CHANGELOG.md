@@ -2,6 +2,14 @@
 
 ## 0.3.0 — 2026-10-26
 
+- **The flying body is slimmer, longer and opaque; the tail is its colour, whiter.** The orange
+  mass you saw was never 集群云雾 — it was the **body itself** reading as a fat orange blob. Across
+  is now `0.74 − 0.24·stretch` of the dot and along `max(1 + 1.5·stretch, 1.9·across)`, so the same
+  10 px star measures **13.6 × 7.2** cruising (aspect 1.90) and **25.0 × 5.0** in flight (aspect
+  5.00, widest 90 % forward) — flat and long instead of round. Its material is drawn
+  `globalAlpha = 1` (the blink now belongs to the halo and the tail, not to the body), and the tail
+  keeps the body's hue pulled **42 % towards white** with a brighter peak (0.34 + 0.5·busy):
+  e.g. cyan `rgb(120,200,214)` → tail `rgb(177,223,231)`.
 - **拖尾 now grows with the body; 锁定 is sticky.** (1) The faint ring you saw first was the
   *static orbit band* (`agentTrack`) — a full circle drawn as soon as one agent existed, before the
   body had even left. It is gone. The tail now records the **whole flight** (`launchFrom`,
