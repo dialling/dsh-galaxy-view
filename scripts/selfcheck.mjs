@@ -1347,6 +1347,12 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		assert.ok(fade(12) * 12 < 1.7 && fade(12) > 0.1, `twelve bodies in one cell sum to ${(fade(12) * 12).toFixed(2)}× a lone halo`);
 	}
 	assert.ok(bundle.includes("const CAPTION_WIDTHS = new Map();"), "caption widths are cached, not measured per frame");
+	// A top-level `const` used before its declaration throws every frame and blanks the scene.
+	{
+		const declAt = clientSource.indexOf("const galaxyNodes = state.galaxy.nodes;");
+		const firstUse = clientSource.indexOf("galaxyNodes.find(");
+		assert.ok(declAt > 0 && firstUse > declAt, "galaxyNodes is declared before anything reads it");
+	}
 	// 巡飞的 Agent: a running session leaves its seat and circles outside the shell, blinking.
 	{
 		const ws = { items: [{ workspaceId: "aw", path: "/aw", title: "aw", sessionIds: ["run", "idle"] }], archivedSessionIds: [] };
