@@ -615,10 +615,15 @@ function spiralLeg(from, to, t, seconds) {
  * clamped delta cannot do that.
  * @returns travelled angle in radians, monotonic in time.
  */
+const ORBIT_CARRY = new Map();
+
 function advanceOrbit(node, seconds, speed) {
 	const dt = Number.isFinite(node.orbitAt) ? Math.min(0.1, Math.max(0, seconds - node.orbitAt)) : 0;
 	node.orbitAt = seconds;
 	node.orbitTravelled = (node.orbitTravelled ?? 0) + dt * speed;
+	// A rebuilt graph brings new node objects; without this the angle restarted at the placed one
+	// and the ring snapped back once per rebuild — the 星环 stutter.
+	ORBIT_CARRY.set(node.id, node.orbitTravelled);
 	return node.orbitTravelled;
 }
 
@@ -1702,6 +1707,14 @@ function createGalaxy(graph, seed, shape) {
 		}
 	}
 
+	// Continue where each body left off (see advanceOrbit).
+	for (const node of nodes) {
+		const carried = ORBIT_CARRY.get(node.id);
+		if (carried !== undefined) {
+			node.orbitTravelled = carried;
+			node.orbitAt = undefined;
+		}
+	}
 	const orbits = layout === "system" ? folders.map((folder) => folder.orbit * shrink) : [];
 	return { nodes, links: graph.links, dust, extent: Math.min(1.7, extent), golden, orbits, offset: { x: offsetX, y: offsetY, z: offsetZ, scale: shrink } };
 }

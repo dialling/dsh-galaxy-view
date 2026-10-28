@@ -432,6 +432,29 @@ const bigShapes = [
 		assert.ok(Math.max(start.y, mid.y, end.y) - Math.min(start.y, mid.y, end.y) > 0.02, "and weaves above and below the ring line");
 		const strands = new Set(bodies.map((node) => node.strandIndex));
 		assert.deepEqual([...strands].sort(), [0, 1], "both strands of the helix are populated");
+		// A rebuild brings new node objects: the orbit clock has to continue, or the ring snaps back
+		// to its placed angle once a second — the stutter the owner saw only in 星环.
+		{
+			const counts2 = [3, 5];
+			const ws2 = { items: counts2.map((n, i) => ({ workspaceId: `rw${i}`, path: `/r/${i}`, title: `r${i}`, sessionIds: Array.from({ length: n }, (_, j) => `rs${i}-${j}`) })), archivedSessionIds: [] };
+			const ss2 = { ids: [], byId: {} };
+			for (const w of ws2.items) for (const id of w.sessionIds) { ss2.ids.push(id); ss2.byId[id] = { id, displayTitle: id, cwd: w.path, updatedAt: "2026-10-24T00:00:00Z" }; }
+			let live = createGalaxy(buildGraph(ws2, ss2, {}), 1, { layout: "rings" });
+			let previous = null;
+			let worst = 0;
+			for (let frame = 0; frame <= 300; frame += 1) {
+				if (frame % 60 === 0 && frame > 0) live = createGalaxy(buildGraph(ws2, ss2, {}), 1, { layout: "rings" });
+				orbitRings(live, frame / 60);
+				const positions = live.nodes.map((node) => [node.x, node.y, node.z]);
+				if (previous !== null && previous.length === positions.length) {
+					for (let index = 0; index < positions.length; index += 1) {
+						worst = Math.max(worst, Math.hypot(positions[index][0] - previous[index][0], positions[index][1] - previous[index][1], positions[index][2] - previous[index][2]));
+					}
+				}
+				previous = positions;
+			}
+			assert.ok(worst < 0.02, `a rebuild does not move the ring (worst frame step ${worst.toFixed(4)})`);
+		}
 		orbitRings(rings, 0);
 		assert.ok(Math.abs(raw() - start.radius) < 1e-9, "rewinding the clock puts the rings back");
 	}
