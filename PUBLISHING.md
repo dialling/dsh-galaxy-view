@@ -104,13 +104,20 @@ not need a new PR for routine updates.
 
 ## Screenshots / 截图
 
-`docs/theme-*.png` and the other previews are rendered by the plugin itself, not captured by hand:
+Every image under `docs/` is rendered by the plugin's own code — nothing is captured from a real
+library, so no workspace name, path or conversation title can leak into the repository. The one
+exception is `docs/galaxy-live.png`: a capture the owner supplied from their own installation. It
+shows the header counts only (no workspace names, no conversation titles), the stray plugin button
+in its bottom-right corner was painted out, and it is downscaled to 1600 px wide. Everything else
+comes from the harness:
 
 ```sh
-node scripts/shot.mjs                 # every theme → docs/theme-<name>.png
-node scripts/shot.mjs deepfield       # one theme
+node scripts/shot.mjs                            # the eight palette previews
+node scripts/shot.mjs theme-deepfield            # one palette
+node scripts/shot.mjs hero rings tree armillary  # the README scenes
 ```
 
-The harness loads the built bundle in headless Chrome, builds a deterministic demo galaxy, and
-paints one frame per theme at 1100×740 (`scripts/shot.mjs`). `screenshots.json` lists what the
-marketplace shows (1–8 images, relative paths, order matters).
+The harness loads the built bundle in headless Chrome, builds a synthetic library (the workspace
+and conversation names are invented in `scripts/shot.mjs`), and paints one frame per shot at
+1100×740. `screenshots.json` lists what the marketplace shows (1–8 images, relative paths, order
+matters); `warp.png` and `tracked.png` were removed because they had been captured by hand.

@@ -350,19 +350,34 @@ const bigShapes = [
 		for (const w of ws.items) for (const id of w.sessionIds) { ss.ids.push(id); ss.byId[id] = { id, displayTitle: id, cwd: w.path, updatedAt: "2026-10-24T00:00:00Z" }; }
 		const rings = createGalaxy(buildGraph(ws, ss, {}), 1, { layout: "rings" });
 		const star = rings.nodes.find((node) => node.ring !== undefined);
-		const at = (t) => {
+		// 逐帧积分: the per-frame angle step is constant, and a jittered live position or a
+		// re-layout cannot make it jump (that was the 星环 stutter).
+		const angleAfter = (t) => {
 			orbitRings(rings, t);
 			return Math.atan2(star.z, star.x);
 		};
-		const step = (from, to) => {
-			let delta = Math.abs(at(to) - at(from));
+		const deltaBetween = (from, to) => {
+			let delta = Math.abs(to - from);
 			if (delta > Math.PI) delta = Math.PI * 2 - delta;
 			return delta;
 		};
-		const first = step(1, 2);
-		const later = step(20, 21);
-		assert.ok(Math.abs(first - later) < first * 0.05, `星环 holds one speed over time (${((first * 180) / Math.PI).toFixed(2)}°/s early, ${((later * 180) / Math.PI).toFixed(2)}°/s at 20 s)`);
-		assert.ok(first > 0 && first < 0.2, `and it is slow: ${((Math.PI * 2) / first).toFixed(0)} s per lap`);
+		let previous = angleAfter(1);
+		const steps = [];
+		for (let frame = 1; frame <= 120; frame += 1) {
+			const current = angleAfter(1 + frame / 60);
+			steps.push(deltaBetween(previous, current));
+			previous = current;
+		}
+		const smooth = steps.slice(2);
+		const mean = smooth.reduce((sum, value) => sum + value, 0) / smooth.length;
+		const worst = Math.max(...smooth);
+		assert.ok(mean > 0, `星环 turns (${((mean * 180) / Math.PI).toFixed(3)}° per frame)`);
+		assert.ok(worst < mean * 1.6, `and the step never spikes (worst ${((worst * 180) / Math.PI).toFixed(3)}° vs mean ${((mean * 180) / Math.PI).toFixed(3)}°)`);
+		// A physics write-back of a few thousandths must not change the speed mid-flight.
+		star.x *= 1.02;
+		star.z *= 1.02;
+		const jittered = deltaBetween(angleAfter(3), angleAfter(3 + 1 / 60));
+		assert.ok(Math.abs(jittered - mean) < mean * 0.2, `a nudged position keeps the same speed (${((jittered * 180) / Math.PI).toFixed(3)}° vs ${((mean * 180) / Math.PI).toFixed(3)}°)`);
 	}
 
 	/* 太阳系 revolves: planets about the sun, moons about their planet, from the clock. */
@@ -376,8 +391,9 @@ const bigShapes = [
 	assert.ok(planetsMoved >= planets.length - 1, `planets travel around the sun (${planetsMoved}/${planets.length} moved in 10 s)`);
 	const moonsAfter = moons.map((moon) => Math.hypot(moon.x - hostOf.get(moon.folderId).x, moon.y - hostOf.get(moon.folderId).y, moon.z - hostOf.get(moon.folderId).z));
 	assert.ok(moonsAfter.every((radius, index) => Math.abs(radius - moonsBefore[index]) < 1e-9), "moons keep their shell while they circle their planet");
+	const afterTravel = system.nodes.map((node) => [node.x, node.z]);
 	orbitSystem(system, 0);
-	assert.ok(near(system.nodes.map((node) => [node.x, node.z]), before), "rewinding the clock puts every body back, so nothing integrates");
+	assert.ok(near(system.nodes.map((node) => [node.x, node.z]), afterTravel), "a rewound clock moves nothing: the angle is integrated, not recomputed");
 
 	/* Camera: a free 360° orbit needs an orthonormal basis at every pitch, poles included. */
 	for (const degrees of [0, 45, 89, 90, 91, 135, 180, -90, -170]) {
@@ -403,12 +419,14 @@ const bigShapes = [
 		assert.equal(new Set(hues.values()).size, hues.size, "each ring owns its own palette slot");
 		const body = bodies.find((node) => node.kind === "session" && node.ring === 0);
 		const raw = () => Math.hypot(body.x, body.z);
-		orbitRings(rings, 0);
-		const start = { radius: raw(), y: body.y, angle: Math.atan2(body.z, body.x) };
-		orbitRings(rings, 3);
-		const mid = { radius: raw(), y: body.y, angle: Math.atan2(body.z, body.x) };
-		orbitRings(rings, 8);
-		const end = { radius: raw(), y: body.y, angle: Math.atan2(body.z, body.x) };
+		// Driven frame by frame, as the scene loop does: the angle is integrated now, so a single
+		// jump from t=0 to t=8 would be clamped to one 0.1 s step.
+		const frames = [];
+		for (let frame = 0; frame <= 480; frame += 1) {
+			orbitRings(rings, frame / 60);
+			if (frame === 0 || frame === 180 || frame === 480) frames.push({ radius: raw(), y: body.y, angle: Math.atan2(body.z, body.x) });
+		}
+		const [start, mid, end] = frames;
 		assert.ok([start, mid, end].every((frame) => Math.abs(frame.radius - start.radius) < 1e-9), "a body keeps its ring radius while it travels");
 		assert.ok(Math.abs(end.angle - start.angle) > 0.2, "a body travels along its ring");
 		assert.ok(Math.max(start.y, mid.y, end.y) - Math.min(start.y, mid.y, end.y) > 0.02, "and weaves above and below the ring line");
