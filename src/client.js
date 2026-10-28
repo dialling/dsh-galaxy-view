@@ -1903,6 +1903,8 @@ function stepScene(state, delta) {
 	if (settings.layout === "rings" && state.galaxy !== null) orbitRings(state.galaxy, state.time);
 	// 浑天: each ring turns inside its own plane (see orbitSphere), not around one common axis.
 	if (settings.layout === "sphere" && state.galaxy !== null) orbitSphere(state.galaxy, state.time);
+	// 双螺旋 turns the opposite way round (see orbitHelix).
+	if (settings.layout === "helix" && state.galaxy !== null) orbitHelix(state.galaxy, state.time);
 	// 巡飞的 Agent: a session that is working right now circles outside the shell in every layout,
 	// so "who is busy" is visible from the overview without reading a single label.
 	if (state.galaxy !== null) {

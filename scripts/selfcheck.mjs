@@ -42,6 +42,7 @@ import {
 	neighboursOf,
 	orbitRings,
 	orbitSphere,
+	orbitHelix,
 	orbitSystem,
 	parseFilter,
 	projectPoint,
@@ -432,6 +433,26 @@ const bigShapes = [
 		assert.ok(Math.max(start.y, mid.y, end.y) - Math.min(start.y, mid.y, end.y) > 0.02, "and weaves above and below the ring line");
 		const strands = new Set(bodies.map((node) => node.strandIndex));
 		assert.deepEqual([...strands].sort(), [0, 1], "both strands of the helix are populated");
+	// 双螺旋 turns opposite to the armillary sphere; both are integrated, so neither can snap back.
+	{
+		const sense = (layout, orbit, pick) => {
+			const counts2 = [5, 4, 4, 3];
+			const ws3 = { items: counts2.map((n, i) => ({ workspaceId: `hw${i}`, path: `/h/${i}`, title: `h${i}`, sessionIds: Array.from({ length: n }, (_, j) => `hs${i}-${j}`) })), archivedSessionIds: [] };
+			const ss3 = { ids: [], byId: {} };
+			for (const w of ws3.items) for (const id of w.sessionIds) ss3.byId[id] = { id, displayTitle: id, cwd: w.path, updatedAt: "2026-10-24T00:00:00Z" };
+			const live = createGalaxy(buildGraph(ws3, ss3, {}), 1, { layout });
+			const node = live.nodes.find(pick);
+			for (let frame = 1; frame <= 60; frame += 1) orbit(live, frame / 60);
+			const a = { x: node.x, y: node.y };
+			for (let frame = 61; frame <= 66; frame += 1) orbit(live, frame / 60);
+			const b = { x: node.x, y: node.y };
+			return { sign: Math.sign(a.x * b.y - a.y * b.x), travel: Math.hypot(b.x - a.x, b.y - a.y) };
+		};
+		const helixSense = sense("helix", orbitHelix, (node) => node.kind === "session");
+		const sphereSense = sense("sphere", orbitSphere, (node) => node.ring === 0);
+		assert.ok(helixSense.travel > 0.001, `双螺旋 turns (${helixSense.travel.toFixed(4)} in 6 frames)`);
+		assert.ok(helixSense.sign !== sphereSense.sign, `and the other way round from the sphere (${helixSense.sign} vs ${sphereSense.sign})`);
+	}
 		// A rebuild brings new node objects: the orbit clock has to continue, or the ring snaps back
 		// to its placed angle once a second — the stutter the owner saw only in 星环.
 		{

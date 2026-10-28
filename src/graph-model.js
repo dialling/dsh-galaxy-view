@@ -296,6 +296,8 @@ const SPHERE_ORBIT = 0.035;
 const HELIX_RADIUS = 0.66;
 const HELIX_HEIGHT = 1.4;
 const HELIX_TURNS = 1.6;
+/** Radians per second the double helix turns about Y (negative: opposite to the sphere's rings). */
+const HELIX_ORBIT = 0.05;
 /** Plate: a cube of cells, half-width so the corner cells sit near radius 1. */
 const CUBE_HALF = 0.6;
 
@@ -616,9 +618,16 @@ function spiralLeg(from, to, t, seconds) {
  * @returns travelled angle in radians, monotonic in time.
  */
 const ORBIT_CARRY = new Map();
+/** Placed x/y of every helix body, so the accumulated angle is applied to the placement once. */
+const HELIX_BASE = new Map();
 
 function advanceOrbit(node, seconds, speed) {
-	const dt = Number.isFinite(node.orbitAt) ? Math.min(0.1, Math.max(0, seconds - node.orbitAt)) : 0;
+	let dt = Number.isFinite(node.orbitAt) ? seconds - node.orbitAt : 0;
+	// A stamp from the future (a rewound clock, a rebuilt graph) would give a negative or zero delta
+	// for as long as it takes the clock to catch up — the body looks frozen. Adopt the new clock
+	// instead, and clamp a long frame so a paused tab cannot jump.
+	if (!(dt > 0)) dt = 0;
+	else if (dt > 0.1) dt = Math.min(0.1, dt);
 	node.orbitAt = seconds;
 	node.orbitTravelled = (node.orbitTravelled ?? 0) + dt * speed;
 	// A rebuilt graph brings new node objects; without this the angle restarted at the placed one
@@ -1798,6 +1807,27 @@ function orbitSphere(galaxy, seconds) {
 	}
 }
 
+/**
+ * 双螺旋 turns the OPPOSITE way round from the armillary sphere.
+ *
+ * The sphere's innermost ring lies in the XY plane and turns positively about +Z, so the helix turns
+ * about the same axis with the opposite sign: the two layouts read as counter-rotating, which is what
+ * the owner asked for. The angle is applied to the placed position (carried by id), never to last
+ * frame's result, and it is integrated like every other orbit so a rebuild cannot snap it back.
+ */
+function orbitHelix(galaxy, seconds) {
+	for (const node of galaxy.nodes) {
+		if (node.kind === undefined) continue;
+		const base = HELIX_BASE.get(node.id) ?? { x: node.x, y: node.y };
+		HELIX_BASE.set(node.id, base);
+		const travelled = advanceOrbit(node, seconds, -HELIX_ORBIT);
+		const cos = Math.cos(travelled);
+		const sin = Math.sin(travelled);
+		node.x = base.x * cos - base.y * sin;
+		node.y = base.x * sin + base.y * cos;
+	}
+}
+
 function orbitSystem(galaxy, seconds) {
 	const planets = [];
 	for (const node of galaxy.nodes) {
@@ -2263,6 +2293,7 @@ export {	ARMS,
 	createGrainSet,
 	orbitRings,
 	orbitSphere,
+	orbitHelix,
 	orbitSystem,
 	createSkyShell,
 	FIELD_RADIUS,
