@@ -1932,14 +1932,11 @@ function stepScene(state, delta) {
 				if (!(node.agentAt <= state.time)) node.agentAt = state.time;
 			}
 		}
-		// 运动方向: the previous frame's position gives the velocity the drop stretches along.
-		for (const node of nodes) {
-			if (node.running === true || node.agentOrbit === true || node.returningFrom !== undefined || node.launchFrom !== undefined) {
-				node.agentPrev = { x: node.x, y: node.y, z: node.z };
-			} else if (node.agentPrev !== undefined) {
-				node.agentPrev = undefined;
-			}
-		}
+		// 运动方向 is captured at the END of the frame (see the persist loop below), not here:
+		// 星环 / 浑天 / 太阳系 move every body on their own clock before the agent step, so a
+		// capture taken at this point held the layout's position instead of the flying body's.
+		// The heading is the difference between two frames of the SAME motion — mixing the
+		// layout's orbit into it tilted the drop (30° off in 星环, 20° in 浑天).
 		// The unfold (点击进银河视图时所有星体铺开的动画) moves every body): a seat captured before it
 		// ends is stale, so a launch from it would bend towards the lane. Nothing takes off until the
 		// scene has settled, and the seat always tracks the body's current position.
@@ -1994,9 +1991,13 @@ function stepScene(state, delta) {
 				startAgentReturn(node, state.time, node.agentPos ?? null);
 				continue;
 			}
-			if (node.running === true && node.agentOrbit === true && node.updatedAt !== undefined && node.updatedAt !== node.agentSeenUpdatedAt) {
+			// A fresh write on a session that stood down means it is working again: clear the
+			// latch so the body is allowed back onto the lane right away instead of waiting out
+			// the 20 s stand-down.
+			if (node.running === true && node.updatedAt !== undefined && node.updatedAt !== node.agentSeenUpdatedAt) {
 				node.agentSeenUpdatedAt = node.updatedAt;
 				node.agentQuietSince = state.time;
+				node.agentCooldownUntil = undefined;
 			}
 		}
 		// Counters for the panel: a report can then tell "never came back" from "came back unseen".
@@ -2022,6 +2023,9 @@ function stepScene(state, delta) {
 		agentState.clear();
 		for (const node of nodes) {
 			if (node.running === true || node.agentOrbit === true || node.returningFrom !== undefined || node.launchFrom !== undefined) {
+				// Captured after every mover has run, so the next frame's velocity is this body's
+				// own motion whatever the layout animates underneath it.
+				node.agentPrev = { x: node.x, y: node.y, z: node.z };
 				agentState.set(node.id, {
 					running: node.running === true,
 					agentPos: { x: node.x, y: node.y, z: node.z },
@@ -2047,6 +2051,8 @@ function stepScene(state, delta) {
 					agentQuietSince: node.agentQuietSince,
 					agentSeenUpdatedAt: node.agentSeenUpdatedAt
 				});
+			} else if (node.agentPrev !== undefined) {
+				node.agentPrev = undefined;
 			}
 		}
 
@@ -3222,31 +3228,24 @@ function renderScene(canvas, state) {
 		// the sprite cache without bound and froze the view.
 		const stretch = node.agentStretch ?? 0;
 		if (stretch > 0.03) {
-			// 朝向: the exact screen velocity, recomputed every frame from the carried previous position.
-			//   x = side/depth  ⇒  x' = (side'·depth − side·depth') / depth²
-			// Using the raw projected velocity drops the depth term (a 3–10° bias), and carrying a
-			// screen-space angle across frames goes stale as the camera moves — that was the jolt.
+			// 朝向: the direction this body actually moved ON SCREEN, taken from this frame's
+			// projected centre minus last frame's. Anything derived from world positions has to
+			// model every later writer — 星环 / 浑天 / 太阳系 move the layout's bodies each frame
+			// and the force layer rewrites x/y/z again before the frame is drawn — and each of
+			// those tilted the drop by 20–70°. The drawn centre has none of that: it is the point
+			// the eye sees, so the drop points where the body is visibly going.
 			let heading = node.agentHeading ?? 0;
-			const prev = node.agentPrev;
-			if (prev !== undefined) {
-				const vx = node.x - prev.x;
-				const vy = node.y - prev.y;
-				const vz = node.z - prev.z;
-				const ex = node.x - basis.eye.x;
-				const ey = node.y - basis.eye.y;
-				const ez = node.z - basis.eye.z;
-				const depth = ex * basis.forward.x + ey * basis.forward.y + ez * basis.forward.z;
-				const sideAt = ex * basis.right.x + ey * basis.right.y + ez * basis.right.z;
-				const liftAt = ex * basis.up.x + ey * basis.up.y + ez * basis.up.z;
-				const sideV = vx * basis.right.x + vy * basis.right.y + vz * basis.right.z;
-				const liftV = vx * basis.up.x + vy * basis.up.y + vz * basis.up.z;
-				const depthV = vx * basis.forward.x + vy * basis.forward.y + vz * basis.forward.z;
-				if (depth > 1e-3) {
-					const side = (sideV * depth - sideAt * depthV) / (depth * depth);
-					const lift = (liftV * depth - liftAt * depthV) / (depth * depth);
-					if (Math.hypot(side, lift) > 1e-9) heading = Math.atan2(-lift, side);
-				}
+			// The previous drawn centre lives on the render state, keyed by id — NOT on the node:
+			// a graph rebuild hands out fresh node objects every second, and the agent-state
+			// persist loop runs before this render, so a copy on the node could only ever hold
+			// the value it was restored with (the drop froze pointing one way).
+			const seen = (state.agentSeen ??= new Map()).get(node.id);
+			if (seen !== undefined) {
+				const dx = entry.x - seen.x;
+				const dy = entry.y - seen.y;
+				if (dx * dx + dy * dy > 0.09) heading = Math.atan2(dy, dx);
 			}
+			state.agentSeen.set(node.id, { x: entry.x, y: entry.y });
 			node.agentHeading = heading;
 			// 扁平细长: the body is a slim drop, not a fat oval — thinner across than a star both at
 			// rest and in flight, and longer along the heading as the acceleration grows.

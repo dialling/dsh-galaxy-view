@@ -1837,6 +1837,15 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 	}
 	assert.ok(bundle.includes("const LEGACY_KEYS = [[\"settings\", STORE_KEY]") && bundle.includes("dsh-graph-view:${suffix}"), "old storage keys are adopted once");
 	assert.ok(bundle.includes('const STORE_KEY = "dsh-galaxy-view:settings";'), "and the new keys are the ones written");
+	// 水滴朝向: the drop points along the direction its DRAWING moved, not along a world-space
+	// velocity. Layout orbits (星环 / 浑天 / 太阳系) and the force layer both rewrite x/y/z before
+	// the frame is drawn, and every one of those writers tilted the heading.
+	{
+		assert.ok(bundle.includes("state.agentSeen.set(node.id, { x: entry.x, y: entry.y })"), "the drop records its projected centre for the next frame");
+		assert.ok(bundle.includes("Math.atan2(dy, dx)"), "and turns by the screen delta between two frames");
+		assert.ok(!bundle.includes("node.agentScreen"), "the centre is not kept on the node: a rebuild replaces the object and the persist loop runs before the render");
+		assert.ok(!bundle.includes("Math.atan2(-lift, side)"), "no world-space heading survives: every later position writer used to tilt it");
+	}
 	// Skills a plugin registers in memory (ponytail's optional ones) have no SKILL.md; the 技能
 	// list used to drop them because the registry branch required a path.
 	{

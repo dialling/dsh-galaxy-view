@@ -644,6 +644,19 @@ function orbitAgents(galaxy, seconds, shellRadius, now = Date.now(), speedScale 
 	const radius = shellRadius * AGENT_ORBIT;
 	for (const node of galaxy.nodes) {
 		if (node.running !== true || node.launchFrom !== undefined) continue;
+		// 回归 owns the body while it glides home. The host's `running` flag lags the reply, so a
+		// finishing session can still report true: placing it back on the lane every frame
+		// overwrote the glide, and the body hovered there — no landing, no round star, and the
+		// stretch kept cycling because the lane kept measuring motion it had not made.
+		if (node.returningFrom !== undefined) continue;
+		// A body that has just stood down must STAY down. The glide lands, `returningFrom`
+		// clears, and with the host still reporting `running` this loop put it straight back on
+		// the lane — the return looked like it never happened and the drop never turned round.
+		if (node.agentCooldownUntil !== undefined && seconds < node.agentCooldownUntil) {
+			node.agentOrbit = false;
+			node.agentStretch = 0;
+			continue;
+		}
 		const { u, v } = agentPlane(node);
 		// The phase comes from the node's index, spread by the golden angle — a hash of the id
 		// put two agents 0.004 rad apart when their ids ended in the same letter.
