@@ -448,7 +448,7 @@ const bigShapes = [
 		let turned = phase(after) - phase(before);
 		while (turned > Math.PI) turned -= Math.PI * 2;
 		while (turned < -Math.PI) turned += Math.PI * 2;
-		assert.ok(turned > 0.05, `双螺旋 turns counter-clockwise from above (${turned.toFixed(3)} rad in 2 s)`);
+		assert.ok(turned < -0.05, `双螺旋 turns counter-clockwise as the camera shows it (${turned.toFixed(3)} rad in 2 s)`);
 		assert.ok(Math.abs(after.y - before.y) < 1e-9, "and it does not climb while it turns");
 	}
 		// A rebuild brings new node objects: the orbit clock has to continue, or the ring snaps back

@@ -296,7 +296,7 @@ const SPHERE_ORBIT = 0.035;
 const HELIX_RADIUS = 0.66;
 const HELIX_HEIGHT = 1.4;
 const HELIX_TURNS = 1.6;
-/** Radians per second the double helix turns about its own axis (+: counter-clockwise from above). */
+/** Radians per second the double helix turns about its own axis (applied negative: counter-clockwise on screen). */
 const HELIX_ORBIT = 0.05;
 /** Plate: a cube of cells, half-width so the corner cells sit near radius 1. */
 const CUBE_HALF = 0.6;
@@ -1813,7 +1813,7 @@ function orbitSphere(galaxy, seconds) {
  * The strand climbs along Y, so the axis is Y: every body swings around it in the XZ plane, which is
  * what "from above, counter-clockwise" describes. Convention for that phrase: looking down at the XZ
  * plane with +X to the right and +Z up the screen, counter-clockwise means +X rotates towards +Z,
- * i.e. the (x, z) pair turns by an increasing angle.
+ * the (x, z) pair turns by a decreasing angle.
  *
  * The angle is applied to the placed position (carried by id) and integrated, so a rebuild cannot
  * snap it back and the applied rotation cannot compose frame over frame.
@@ -1823,7 +1823,9 @@ function orbitHelix(galaxy, seconds) {
 		if (node.kind === undefined) continue;
 		const base = HELIX_BASE.get(node.id) ?? { x: node.x, z: node.z };
 		HELIX_BASE.set(node.id, base);
-		const turned = advanceOrbit(node, seconds, HELIX_ORBIT);
+		// Sign flipped on the owner's report: with this camera the screen's up axis is −Z, so a positive
+		// (x, z) phase reads as clockwise from above. Negative is the counter-clockwise they asked for.
+		const turned = advanceOrbit(node, seconds, -HELIX_ORBIT);
 		const cos = Math.cos(turned);
 		const sin = Math.sin(turned);
 		node.x = base.x * cos - base.z * sin;
