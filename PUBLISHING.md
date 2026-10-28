@@ -101,3 +101,16 @@ the patch row idempotently.
 The market offers an update only when `version` increases: bump `package.json`,
 add a `CHANGELOG.md` entry, run `npm publish`, done. The market entry yml does
 not need a new PR for routine updates.
+
+## Screenshots / 截图
+
+`docs/theme-*.png` and the other previews are rendered by the plugin itself, not captured by hand:
+
+```sh
+node scripts/shot.mjs                 # every theme → docs/theme-<name>.png
+node scripts/shot.mjs deepfield       # one theme
+```
+
+The harness loads the built bundle in headless Chrome, builds a deterministic demo galaxy, and
+paints one frame per theme at 1100×740 (`scripts/shot.mjs`). `screenshots.json` lists what the
+marketplace shows (1–8 images, relative paths, order matters).
