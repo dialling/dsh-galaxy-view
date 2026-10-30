@@ -1819,6 +1819,11 @@ assert.ok(/connection\.rpc\.call\(MEMORY_CHANNEL/.test(bundle), "the memory view
 		const spread = Math.max(...radii) - Math.min(...radii);
 		assert.ok(spread < 0.02, `the tail is rebuilt at the new radius (spread ${spread.toFixed(3)})`);
 	}
+	// The turn map keeps saying "ended", so a body sent home by it must wait for the NEXT turn —
+	// otherwise the still-running flag relaunches it straight into another return (endless loop).
+	assert.ok(clientSource.includes("turnEndedFor(state.turns, node.id) && laneTime > 6"), "the turn signal needs a few seconds on the lane");
+	assert.ok(clientSource.includes('node.agentStoodDown = turnEnded ? "turn" : "lap";'), "the stand-down remembers why it happened");
+	assert.ok(clientSource.includes("turnOpenFor(state.turns, node.id) !== true"), "and a turn-based stand-down waits for a new turn");
 	assert.ok(clientSource.includes("if (stretch > 0.03)") && clientSource.includes("context.rotate(heading)") && clientSource.includes("const along = Math.max(entry.dot * (1 + 2.0 * stretch) * scale, across * 2.4)") && clientSource.includes("const across = entry.dot * (0.56 - 0.16 * stretch) * scale"), "the body is drawn as a rotated drop");
 	// the exit still stretches and still lands outside the seat
 	{
